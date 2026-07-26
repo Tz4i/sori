@@ -1,0 +1,35 @@
+name: sori
+options:
+  bundleIdPrefix: com.sebastianzapata
+  deploymentTarget:
+    macOS: "14.4"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    MACOSX_DEPLOYMENT_TARGET: "14.4"
+    # TODO(codesign): PC7Q8XD735 is "Sebastian Zapata (Personal Team)", detected
+    # from this Mac's Xcode preferences (IDEProvisioningTeamByIdentifier).
+    # If this ever needs to move to a different Mac/account, replace this with
+    # your own Team ID (Xcode > Settings > Accounts > select team > "Team ID"),
+    # or open the project in Xcode, go to the target's Signing & Capabilities
+    # tab, and pick your team from the dropdown there instead.
+    DEVELOPMENT_TEAM: PC7Q8XD735
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Development"
+    GENERATE_INFOPLIST_FILE: NO
+
+targets:
+  sori:
+    type: application
+    platform: macOS
+    sources:
+      - path: sori
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sebastianzapata.sori
+        PRODUCT_NAME: sori
+        INFOPLIST_FILE: sori/Info.plist
+        ENABLE_HARDENED_RUNTIME: NO
+        COMBINE_HIDPI_IMAGES: YES

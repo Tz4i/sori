@@ -1,0 +1,336 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		093A43BEEC3FBADA10A00DF4 /* CoreAudioTapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */; };
+		0A5E0E41CDF03DB7C1B89A3E /* ProcessAudioTapEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */; };
+		0BA4562723ED1702904AA668 /* AudioProcessMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */; };
+		17D9F129D86ABE8AEDD43A85 /* SoriOwnedAggregateDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */; };
+		1EC9FC455C72116C3C62E980 /* AvailableAudioDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B8DFE06311AB8FFF9DC009 /* AvailableAudioDevices.swift */; };
+		329FFAB4784D53895A73F355 /* SoriDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */; };
+		4287CF8E4CA841D7962477A4 /* AppVolumeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52264B5901439EBA8D79D002 /* AppVolumeController.swift */; };
+		59FCCF6816532CC2ECCB735A /* AudioRecordingPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F2262ADE9E0B6C452D0E29A /* AudioRecordingPermission.swift */; };
+		8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1533010DF07980794E70513D /* SoriApp.swift */; };
+		C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6912BFC8A668570AA186BCA /* SystemAudioController.swift */; };
+		E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1533010DF07980794E70513D /* SoriApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriApp.swift; sourceTree = "<group>"; };
+		1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreAudioTapSupport.swift; sourceTree = "<group>"; };
+		24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessMonitor.swift; sourceTree = "<group>"; };
+		52264B5901439EBA8D79D002 /* AppVolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVolumeController.swift; sourceTree = "<group>"; };
+		59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriOwnedAggregateDevices.swift; sourceTree = "<group>"; };
+		5F2262ADE9E0B6C452D0E29A /* AudioRecordingPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingPermission.swift; sourceTree = "<group>"; };
+		5FE55A713268D627A6B6A4A8 /* sori.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = sori.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessAudioTapEngine.swift; sourceTree = "<group>"; };
+		77B8DFE06311AB8FFF9DC009 /* AvailableAudioDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableAudioDevices.swift; sourceTree = "<group>"; };
+		85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapEngineDiagnosticTest.swift; sourceTree = "<group>"; };
+		A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriDebugLog.swift; sourceTree = "<group>"; };
+		E1B286BF6FA6C7C04E82F62B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E6912BFC8A668570AA186BCA /* SystemAudioController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioController.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1A413796931A34EE951AD40B /* sori */ = {
+			isa = PBXGroup;
+			children = (
+				52264B5901439EBA8D79D002 /* AppVolumeController.swift */,
+				24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */,
+				5F2262ADE9E0B6C452D0E29A /* AudioRecordingPermission.swift */,
+				77B8DFE06311AB8FFF9DC009 /* AvailableAudioDevices.swift */,
+				1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */,
+				E1B286BF6FA6C7C04E82F62B /* Info.plist */,
+				739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */,
+				1533010DF07980794E70513D /* SoriApp.swift */,
+				A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */,
+				59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */,
+				E6912BFC8A668570AA186BCA /* SystemAudioController.swift */,
+				85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */,
+			);
+			path = sori;
+			sourceTree = "<group>";
+		};
+		324D543856BEDA5313E3339F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5FE55A713268D627A6B6A4A8 /* sori.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FC24888C9ED01BA05FFE32B4 = {
+			isa = PBXGroup;
+			children = (
+				1A413796931A34EE951AD40B /* sori */,
+				324D543856BEDA5313E3339F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1EA1115F355132D024812FA8 /* sori */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DF9D142589CBFA7E37596177 /* Build configuration list for PBXNativeTarget "sori" */;
+			buildPhases = (
+				737B2216CED805F71040C95F /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = sori;
+			packageProductDependencies = (
+			);
+			productName = sori;
+			productReference = 5FE55A713268D627A6B6A4A8 /* sori.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2F28A439D15F48A8AD75678C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					1EA1115F355132D024812FA8 = {
+						DevelopmentTeam = PC7Q8XD735;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 8A594BA15666379C62747264 /* Build configuration list for PBXProject "sori" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = FC24888C9ED01BA05FFE32B4;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 324D543856BEDA5313E3339F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1EA1115F355132D024812FA8 /* sori */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		737B2216CED805F71040C95F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4287CF8E4CA841D7962477A4 /* AppVolumeController.swift in Sources */,
+				0BA4562723ED1702904AA668 /* AudioProcessMonitor.swift in Sources */,
+				59FCCF6816532CC2ECCB735A /* AudioRecordingPermission.swift in Sources */,
+				1EC9FC455C72116C3C62E980 /* AvailableAudioDevices.swift in Sources */,
+				093A43BEEC3FBADA10A00DF4 /* CoreAudioTapSupport.swift in Sources */,
+				0A5E0E41CDF03DB7C1B89A3E /* ProcessAudioTapEngine.swift in Sources */,
+				8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */,
+				329FFAB4784D53895A73F355 /* SoriDebugLog.swift in Sources */,
+				17D9F129D86ABE8AEDD43A85 /* SoriOwnedAggregateDevices.swift in Sources */,
+				C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */,
+				E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		36CF0A5886E078428D841698 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = sori/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sebastianzapata.sori;
+				PRODUCT_NAME = sori;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		9B59F8DC9C49FC182B8981EA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = PC7Q8XD735;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		CAB9F590E31A1755A59BC689 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = sori/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sebastianzapata.sori;
+				PRODUCT_NAME = sori;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		E326FFA2F23F3D6DDCD66E6C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = PC7Q8XD735;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8A594BA15666379C62747264 /* Build configuration list for PBXProject "sori" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9B59F8DC9C49FC182B8981EA /* Debug */,
+				E326FFA2F23F3D6DDCD66E6C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DF9D142589CBFA7E37596177 /* Build configuration list for PBXNativeTarget "sori" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				36CF0A5886E078428D841698 /* Debug */,
+				CAB9F590E31A1755A59BC689 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 2F28A439D15F48A8AD75678C /* Project object */;
+}
