@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>소리 (Sori) Changelog</title>
+        <description>Update feed for 소리, a macOS menu bar per-app audio mixer.</description>
+        <link>https://raw.githubusercontent.com/Tz4i/sori/main/appcast.xml</link>
+        <language>en</language>
+        <!--
+          No items yet - this file just needs to exist and be valid XML so
+          Sparkle's feed check (SUFeedURL in Info.plist, pointed at this
+          file's raw.githubusercontent.com URL) gets a real "no update
+          available" answer instead of a 404. See RELEASING.md for how to
+          add an <item> here when cutting the first real release.
+        -->
+    </channel>
+</rss>

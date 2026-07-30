@@ -30,5 +30,15 @@
 	<string>NSApplication</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>소리 needs permission to capture system audio so it can process what other apps are playing on this Mac.</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/Tz4i/sori/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>L0Oe4ZusuYiaDTiB+SKppZypg096AGYZjVoHrhm6wHw=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 </dict>
 </plist>

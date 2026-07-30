@@ -3,3 +3,8 @@ build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
+
+# Sparkle release-signing CLI tools (generate_keys, sign_update,
+# generate_appcast) - downloaded from sparkle-project/Sparkle's GitHub
+# release tarball, not vendored. See RELEASING.md for how to re-fetch them.
+.sparkle-tools/

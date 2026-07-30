@@ -24,6 +24,7 @@ struct SoriApp: App {
     private let systemInput: SystemDeviceVolumeController
     private let systemAlert = SystemAlertVolumeController()
     private let launchAtLogin = LaunchAtLoginController()
+    private let updater = SoriUpdaterController()
 
     init() {
         let availableDevices = AvailableAudioDevices()
@@ -52,7 +53,8 @@ struct SoriApp: App {
                 systemOutput: systemOutput,
                 systemInput: systemInput,
                 systemAlert: systemAlert,
-                launchAtLogin: launchAtLogin
+                launchAtLogin: launchAtLogin,
+                updater: updater
             )
         } label: {
             Image(nsImage: Self.menuBarIcon)
@@ -120,6 +122,7 @@ private struct MenuContentView: View {
     var systemInput: SystemDeviceVolumeController
     var systemAlert: SystemAlertVolumeController
     var launchAtLogin: LaunchAtLoginController
+    var updater: SoriUpdaterController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -201,7 +204,7 @@ private struct MenuContentView: View {
                 // with Quit rather than floating separately up in the
                 // header - keeps both of the popover's non-audio controls
                 // in one predictable place.
-                SettingsMenu(permission: permission, launchAtLogin: launchAtLogin)
+                SettingsMenu(permission: permission, launchAtLogin: launchAtLogin, updater: updater)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -379,6 +382,7 @@ private func deviceMenuItemLabel(_ title: String, isSelected: Bool) -> some View
 private struct SettingsMenu: View {
     let permission: AudioRecordingPermission
     let launchAtLogin: LaunchAtLoginController
+    let updater: SoriUpdaterController
 
     var body: some View {
         Menu {
@@ -400,6 +404,17 @@ private struct SettingsMenu: View {
                 Button("Open Login Items Settings…") {
                     launchAtLogin.openLoginItemsSettings()
                 }
+            }
+
+            Divider()
+
+            // Standard Sparkle behavior: this is on top of, not instead of,
+            // the silent scheduled background check (SUEnableAutomaticChecks
+            // / SUScheduledCheckInterval in Info.plist) - Sparkle's own
+            // standard user driver shows all the checking/up-to-date/
+            // download-available UI itself.
+            Button("Check for Updates…") {
+                updater.checkForUpdates()
             }
         } label: {
             Image(systemName: "gearshape")

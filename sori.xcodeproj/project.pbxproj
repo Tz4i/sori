@@ -10,12 +10,14 @@
 		093A43BEEC3FBADA10A00DF4 /* CoreAudioTapSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */; };
 		0A5E0E41CDF03DB7C1B89A3E /* ProcessAudioTapEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */; };
 		0BA4562723ED1702904AA668 /* AudioProcessMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */; };
+		11FB40418E6BC4B39CCDB36E /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B4640C83E3CEE1984381E5D2 /* Sparkle */; };
 		17D9F129D86ABE8AEDD43A85 /* SoriOwnedAggregateDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */; };
 		1EC9FC455C72116C3C62E980 /* AvailableAudioDevices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B8DFE06311AB8FFF9DC009 /* AvailableAudioDevices.swift */; };
 		329FFAB4784D53895A73F355 /* SoriDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */; };
 		4287CF8E4CA841D7962477A4 /* AppVolumeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52264B5901439EBA8D79D002 /* AppVolumeController.swift */; };
 		59FCCF6816532CC2ECCB735A /* AudioRecordingPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F2262ADE9E0B6C452D0E29A /* AudioRecordingPermission.swift */; };
 		8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1533010DF07980794E70513D /* SoriApp.swift */; };
+		A25872141D12910292F59C3E /* SoriUpdaterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3683CAADA92A88E04050D086 /* SoriUpdaterController.swift */; };
 		BF176271627C870D5600E932 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */; };
 		C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6912BFC8A668570AA186BCA /* SystemAudioController.swift */; };
 		E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */; };
@@ -25,6 +27,7 @@
 		1533010DF07980794E70513D /* SoriApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriApp.swift; sourceTree = "<group>"; };
 		1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreAudioTapSupport.swift; sourceTree = "<group>"; };
 		24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessMonitor.swift; sourceTree = "<group>"; };
+		3683CAADA92A88E04050D086 /* SoriUpdaterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriUpdaterController.swift; sourceTree = "<group>"; };
 		51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginController.swift; sourceTree = "<group>"; };
 		52264B5901439EBA8D79D002 /* AppVolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVolumeController.swift; sourceTree = "<group>"; };
 		59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriOwnedAggregateDevices.swift; sourceTree = "<group>"; };
@@ -37,6 +40,17 @@
 		E1B286BF6FA6C7C04E82F62B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E6912BFC8A668570AA186BCA /* SystemAudioController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B7D0AF36B6CE62958795E742 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				11FB40418E6BC4B39CCDB36E /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1A413796931A34EE951AD40B /* sori */ = {
@@ -53,6 +67,7 @@
 				1533010DF07980794E70513D /* SoriApp.swift */,
 				A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */,
 				59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */,
+				3683CAADA92A88E04050D086 /* SoriUpdaterController.swift */,
 				E6912BFC8A668570AA186BCA /* SystemAudioController.swift */,
 				85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */,
 			);
@@ -83,6 +98,7 @@
 			buildConfigurationList = DF9D142589CBFA7E37596177 /* Build configuration list for PBXNativeTarget "sori" */;
 			buildPhases = (
 				737B2216CED805F71040C95F /* Sources */,
+				B7D0AF36B6CE62958795E742 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -90,6 +106,7 @@
 			);
 			name = sori;
 			packageProductDependencies = (
+				B4640C83E3CEE1984381E5D2 /* Sparkle */,
 			);
 			productName = sori;
 			productReference = 5FE55A713268D627A6B6A4A8 /* sori.app */;
@@ -119,6 +136,9 @@
 			);
 			mainGroup = FC24888C9ED01BA05FFE32B4;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D7C1F378E47FCB94902463A3 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 324D543856BEDA5313E3339F /* Products */;
 			projectDirPath = "";
@@ -144,6 +164,7 @@
 				8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */,
 				329FFAB4784D53895A73F355 /* SoriDebugLog.swift in Sources */,
 				17D9F129D86ABE8AEDD43A85 /* SoriOwnedAggregateDevices.swift in Sources */,
+				A25872141D12910292F59C3E /* SoriUpdaterController.swift in Sources */,
 				C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */,
 				E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */,
 			);
@@ -335,6 +356,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D7C1F378E47FCB94902463A3 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B4640C83E3CEE1984381E5D2 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D7C1F378E47FCB94902463A3 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2F28A439D15F48A8AD75678C /* Project object */;
 }
