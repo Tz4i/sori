@@ -5,12 +5,25 @@
         <description>Update feed for 소리, a macOS menu bar per-app audio mixer.</description>
         <link>https://raw.githubusercontent.com/Tz4i/sori/main/appcast.xml</link>
         <language>en</language>
-        <!--
-          No items yet - this file just needs to exist and be valid XML so
-          Sparkle's feed check (SUFeedURL in Info.plist, pointed at this
-          file's raw.githubusercontent.com URL) gets a real "no update
-          available" answer instead of a 404. See RELEASING.md for how to
-          add an <item> here when cutting the first real release.
-        -->
+        <item>
+            <title>Version 1.1</title>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <description><![CDATA[
+                <ul>
+                    <li>Added a "Launch 소리 at Login" option.</li>
+                    <li>Fixed a rare crash during normal use.</li>
+                    <li>Clearer messaging when the audio-capture permission is missing or revoked.</li>
+                    <li>Added auto-updates via Sparkle.</li>
+                </ul>
+            ]]></description>
+            <pubDate>Thu, 30 Jul 2026 15:14:06 -0700</pubDate>
+            <sparkle:minimumSystemVersion>14.4</sparkle:minimumSystemVersion>
+            <enclosure
+                url="https://github.com/Tz4i/sori/releases/download/v1.1/sori-1.1.zip"
+                length="1188175"
+                type="application/octet-stream"
+                sparkle:edSignature="uhwj6wX8K6IeDxsWuFRyhttQzCbNUQDUHWRN1wuoOlFYTTia8Cm7ehHaZA41lAmV3vbwaiB2xxH388PucAl2CQ==" />
+        </item>
     </channel>
 </rss>
