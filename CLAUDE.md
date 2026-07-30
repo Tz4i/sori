@@ -31,6 +31,14 @@ Bundle ID: `com.sebastianzapata.sori`. Deployment target: macOS 14.4.
 - `sori/LaunchAtLoginController.swift` — "Launch 소리 at Login" toggle backed
   by `SMAppService.mainApp` (macOS 13+), surfaced in `SoriApp.swift`'s gear
   settings menu.
+- `sori/SoriUpdaterController.swift` — thin wrapper around Sparkle's
+  `SPUStandardUpdaterController`, surfaced as "Check for Updates…" in the
+  gear settings menu. See "Distribution (Sparkle auto-updates)" below and
+  `RELEASING.md` for the actual release-cutting process.
+- `sori/SoriDebugLog.swift` — timestamped lifecycle logging (tap/aggregate
+  create-destroy, IOProc start/stop, device-list changes, rebuild triggers),
+  **always writes to a persistent file** (`~/Library/Logs/Sori/sori.log`,
+  rotated at 5MB), not just stderr — see trap-list addendum below for why.
 
 ## Building and running
 
@@ -389,6 +397,114 @@ findings, not Core Audio ones)
   actually fires on every popover open on this macOS build - implemented and
   reasoned through, same unverified status as the rest of this feature (see
   PROGRESS.md).
+
+## Crash resilience & permission-flow notes (not Core Audio, kept separate
+for the same reason as the section above - Swift/Foundation and TCC findings,
+not Core Audio ones)
+
+- **`Dictionary(uniqueKeysWithValues:)` fatal-traps on a duplicate key, and
+  live OS enumeration is not guaranteed unique.** Confirmed live as a real,
+  reproducible crash (`EXC_BREAKPOINT`/`SIGTRAP`, a Swift runtime trap, not
+  memory corruption): `AudioProcessMonitor.refresh()` built a `[pid_t:
+  NSRunningApplication]` map via `runningApps.map { ($0.processIdentifier,
+  $0) }`, but `NSRunningApplication.processIdentifier` returns `-1` for an
+  app that's transitioning in/out of existence - if two such apps are in
+  that transient state during the same 250ms poll tick, both produce the key
+  `-1` and the initializer traps. This crashed on the main thread, nowhere
+  near Core Audio or the realtime IOProc callback - "runs fine for a while,
+  then randomly dies" is exactly the signature of a bug gated on ambient
+  system activity (something else launching/quitting at the right moment)
+  rather than anything audio-specific. Fixed by filtering out `pid <= 0`
+  entries before building the dictionary, then using `uniquingKeysWith:`
+  (first-wins) as defense-in-depth, matching the pattern already used one
+  line below for `runningAppsByName`. Audited the rest of the codebase for
+  the same pattern (every other `Dictionary`/`Set` construction, every
+  force-unwrap, `as!`, `try!`, `fatalError`, `precondition`) - this was the
+  only instance.
+- **`SoriDebugLog` must write to a persistent file, not just stderr, to be
+  useful against a crash you can't reproduce on demand.** It's called from
+  every tap/aggregate create-destroy, `AudioDeviceStart`/`Stop`/
+  `CreateIOProcID`, device-list change, and rebuild-loop-guard trip - but a
+  stderr-only log is invisible once the app launches normally (no attached
+  terminal), and it was originally gated behind `SORI_DEBUG_TAP_LIFECYCLE=1`
+  (off by default) - so it wouldn't have been capturing anything during
+  whatever ordinary session actually crashes. Now always writes to
+  `~/Library/Logs/Sori/sori.log` (5MB rotation, one backup) regardless of
+  that env var, which still additionally mirrors to stderr for interactive
+  debugging. Every call site is confirmed to run on the main actor (never
+  from `ProcessAudioTapEngine.process(...)`, the realtime IOProc callback),
+  so synchronous file I/O here is safe - a future call site added to that
+  realtime callback would violate the realtime-thread rules regardless of
+  what this logger does.
+- **Once TCC has recorded ANY decision for `kTCCServiceAudioCapture`, macOS
+  will never show the consent dialog again - not even after the user
+  revokes a previous grant in System Settings.** `TCCAccessRequest` just
+  silently replays the recorded decision. `AudioRecordingPermission.Status`
+  already distinguishes this correctly since `TCCAccessPreflight` genuinely
+  returns different codes for "never decided" (`.unknown`) vs. "a decision
+  is on record" (`.denied` - covers both an initial refusal and a later
+  revocation, macOS doesn't distinguish these to us either). The UI must
+  route `.denied` to opening System Settings directly instead of calling
+  `request()` again. The correct deep link, confirmed via Apple's own
+  support documentation ("Control access to screen and system audio
+  recording on Mac"), is:
+  ```
+  x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture
+  ```
+  `Privacy_ScreenCapture` is the right anchor even though this permission is
+  "System Audio Recording," not screen recording - Apple groups both under
+  one shared pane, "Screen & System Audio Recording." Also per Apple's own
+  guidance for that pane: toggling the switch there does **not** take effect
+  until the app is fully quit and reopened, not just brought back to the
+  foreground - `AudioRecordingPermission` already re-reads `TCCAccessPreflight`
+  on `NSApplication.didBecomeActiveNotification`, so the *displayed* banner
+  state will likely flip correctly without a relaunch, but that's just a
+  database read and is not proof the running process's actual tap-creation
+  capability re-took - tell the user explicitly to relaunch rather than
+  relying on the banner disappearing as confirmation.
+
+## Distribution (Sparkle auto-updates)
+
+- Sparkle 2.9.4 via SPM (`project.yml` → `packages.Sparkle`, pinned in
+  `sori.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`).
+  Sori has no entitlements and is not sandboxed (`ENABLE_HARDENED_RUNTIME: NO`,
+  no `.entitlements` file), so the plain non-sandboxed Sparkle integration
+  applies - no XPC service setup needed. If that ever changes (sandboxing
+  gets added later), Sparkle's sandboxed-app XPC setup would need revisiting.
+- **The EdDSA signing key is scoped to a Sori-specific keychain account,
+  `com.sebastianzapata.sori`, not the tools' default account.** This
+  machine's keychain already had a *different* app's (Grab's) Sparkle key
+  under the default `ed25519` account - confirmed live via `generate_keys -p`
+  before generating Sori's key, and reconfirmed both keys coexist
+  independently afterward. Every Sparkle CLI invocation
+  (`generate_keys`, `sign_update`) must pass `--account
+  com.sebastianzapata.sori` explicitly, or it silently falls back to the
+  default account instead of erroring - see `RELEASING.md` for the full
+  command list.
+- Sparkle's CLI tools (`generate_keys`, `sign_update`, `generate_appcast`,
+  `BinaryDelta`) come from Sparkle's GitHub release tarball, not the SPM
+  package (SPM only ships the framework) - unpacked at `.sparkle-tools/bin/`,
+  gitignored.
+- Feed model: `appcast.xml` is a plain file committed at the repo root,
+  served via its `raw.githubusercontent.com` URL (`SUFeedURL` in
+  `Info.plist`) - not a GitHub Release asset, since the feed URL needs to
+  stay constant while its content grows across releases, which a single
+  release's asset URL can't do on its own. Update *payloads* (the zipped
+  app) are attached to GitHub Releases instead, referenced by the appcast's
+  `<enclosure url>`. Note `raw.githubusercontent.com` caches for 5 minutes
+  (`cache-control: max-age=300`) - after pushing an appcast change, the live
+  URL can still serve the previous version for a few minutes; check
+  `git show HEAD:appcast.xml` to confirm what was actually pushed rather
+  than assuming the CDN response is current.
+- **Builds are not notarized** (Apple Development signing identity, not
+  Developer ID) - Gatekeeper will block both first install and every
+  Sparkle-delivered update on any Mac other than the one it was built on.
+  Full explanation and the right-click-Open workaround for end users is in
+  `RELEASING.md`, not duplicated here.
+- The actual release-cutting steps (version bump, build, `ditto` zip,
+  `sign_update`, GitHub Release, appcast entry) live in `RELEASING.md`, not
+  here - that file is the operational runbook, this file is codebase
+  documentation.
 
 ## Style notes
 

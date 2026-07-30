@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-27
+Last updated: 2026-07-30
 
 ## Done
 
@@ -275,6 +275,115 @@ out of the main popover entirely so it's purely audio controls.
   (gear placement, arrow, offset) before that ground-truth check happened.
   Do this first next session - see Known gaps and Next.
 
+**Crash diagnosis and fix (2026-07-30)** — user-reported "Sori randomly quits
+after running for a while during normal use." Diagnosed from the one real
+crash report on this machine, `~/Library/Logs/DiagnosticReports/Retired/
+sori-2026-07-27-193913.ips`, before changing anything.
+- Root cause found directly from the crash report's own symbolicated stack:
+  `EXC_BREAKPOINT`/`SIGTRAP` (a Swift runtime trap, not memory corruption),
+  on the **main thread**, top frame `AudioProcessMonitor.refresh()` at the
+  `Dictionary(uniqueKeysWithValues:)` call building `runningAppsByPID`.
+  `NSRunningApplication.processIdentifier` returns `-1` for an app
+  transitioning in/out of existence; two such apps in the same 250ms poll
+  tick produced a duplicate `-1` key and the initializer fatal-trapped. None
+  of the Core Audio/IOProc/teardown-race hypotheses that prompted the
+  investigation were actually implicated - nowhere near the realtime thread.
+- Fixed by filtering `pid <= 0` entries before constructing the dictionary,
+  then adding `uniquingKeysWith:` (first-wins) as defense-in-depth, matching
+  the existing `runningAppsByName` pattern. Documented as CLAUDE.md's new
+  "Crash resilience & permission-flow notes" section.
+- Audited the whole codebase for the same class of bug (every other
+  `Dictionary`/`Set` construction fed by live OS enumeration, every
+  force-unwrap, `as!`, `try!`, `fatalError`, `precondition`) - this was the
+  only instance found.
+- `SoriDebugLog` (tap/aggregate/IOProc/device-list/rebuild lifecycle
+  logging) changed from stderr-only-behind-an-env-var to **always** writing
+  to a persistent `~/Library/Logs/Sori/sori.log` (5MB rotation, one backup),
+  so a future intermittent crash leaves a trail instead of needing to be
+  anticipated in advance. Confirmed no call site is reached from the
+  realtime IOProc callback before making this change.
+- Build verified clean after each change (`xcodebuild` → BUILD SUCCEEDED).
+
+**Permission-required banner fixes (2026-07-30)** — two bugs reported live:
+message text truncating instead of wrapping, and the "Grant Audio
+Permission" button appearing dead after a permission revocation.
+- Text truncation fixed with `.fixedSize(horizontal: false, vertical: true)`
+  on both the warning text and the new denied-state helper text - without
+  it, the `Text` was collapsing to a single-line ideal width inside the
+  fixed 300pt popover instead of wrapping.
+- The dead-button issue turned out to be expected macOS TCC behavior, not a
+  wiring bug: once any decision is recorded for `kTCCServiceAudioCapture`
+  (`.denied` - covers both an initial refusal and a later revocation),
+  `TCCAccessRequest` silently replays that decision and never shows the
+  consent dialog again. `PermissionRequiredBanner` now branches on
+  `permission.status`: `.unknown` still calls `request()` (the real prompt);
+  `.denied` instead opens System Settings directly via
+  `AudioRecordingPermission.openSystemSettingsPrivacyPane()`
+  (`x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture`
+  - confirmed correct via Apple's own support documentation, since system
+  audio recording shares a pane with Screen Recording), with copy explaining
+  the user needs to fully quit and reopen Sori afterward - Apple's own
+  guidance for that pane says toggling the switch doesn't take effect
+  otherwise. Documented in CLAUDE.md.
+
+**GitHub repo made public (2026-07-30)** — `github.com/Tz4i/sori` flipped
+from private to public ahead of the Sparkle work below, since the appcast
+feed needed a public, unauthenticated raw-file URL. Flagged before doing it
+that the repo's commit history has the user's real email baked into every
+existing commit (`git config user.email`, separate from - and not fixed by -
+GitHub's own "keep my email private" account setting, which only affects
+web-UI-authored commits/profile display, not commit objects already in
+history). User chose to switch `git config user.email` to their GitHub
+noreply address (`92614574+Tz4i@users.noreply.github.com`) for *future*
+commits rather than rewrite existing history.
+
+**Sparkle auto-updates (2026-07-30)** — added end-to-end: SPM dependency,
+signing, feed hosting, in-app UI, and documentation, following a pattern the
+user had already shipped once before on another app (Grab).
+- Sparkle 2.9.4 (latest stable, tarball checksum-verified against GitHub's
+  published digest) added via SPM in `project.yml`, pinned in the
+  now-tracked `Package.resolved`.
+- A **new** EdDSA key pair generated specifically for Sori
+  (`generate_keys --account com.sebastianzapata.sori`) - confirmed live via
+  `generate_keys -p` that this machine's keychain already held a *different*
+  app's (Grab's) key under the default account, and confirmed both keys
+  coexist independently afterward. Public key committed to `Info.plist`
+  (`SUPublicEDKey`); private key never left the keychain.
+- `SoriUpdaterController.swift` wraps `SPUStandardUpdaterController`,
+  constructed at app-launch scope like every other controller so background
+  checks start immediately. "Check for Updates…" added to the gear settings
+  menu. `Info.plist` configures daily automatic checks
+  (`SUScheduledCheckInterval=86400`) and prompt-before-install
+  (`SUAutomaticallyUpdate=false`) - never silent.
+- Feed: `appcast.xml` committed at the repo root, served via its
+  `raw.githubusercontent.com` URL (`SUFeedURL`); update payloads attached to
+  GitHub Releases. Confirmed the raw URL resolves (200) after pushing.
+- `RELEASING.md` written as the operational runbook (version bump → build →
+  `ditto` zip → `sign_update` → GitHub Release → appcast entry → push),
+  including a dedicated, prominent warning that builds are **not notarized**
+  (Apple Development signing, not Developer ID) - Gatekeeper will block both
+  first install and every future update on any Mac other than the build
+  machine, with the right-click-Open workaround documented for end users and
+  Developer ID + notarization noted as the real fix if that's ever wanted.
+- Full sign path dry-run tested end-to-end before any real release (a
+  throwaway zip of the then-current build, `sign_update` then
+  `sign_update --verify` exit 0) before deleting the test artifact.
+
+**Version 1.1 cut and shipped (2026-07-30)** — the first real release since
+Sparkle was wired in, and the first version capable of receiving Sparkle
+updates itself (nothing to update *from*, since 1.0 predates Sparkle
+entirely). `CFBundleShortVersionString` 1.0→1.1, `CFBundleVersion` 1→2.
+Built Release config, `ditto`-zipped, signed with Sori's key
+(`sign_update --verify` confirmed valid), attached to GitHub Release
+[v1.1](https://github.com/Tz4i/sori/releases/tag/v1.1) (download URL
+confirmed live, 200), and the corresponding `<item>` added to `appcast.xml`
+and pushed. Release notes cover Launch at Login, the crash fix, the
+permission-banner UX fixes, and Sparkle itself. Noted for next time: pushing
+an appcast change doesn't take effect on the public `raw.githubusercontent.com`
+URL for up to 5 minutes (`cache-control: max-age=300`) - verify what was
+actually pushed via `git show HEAD:appcast.xml` rather than assuming a
+CDN response is current.
+
 ## Known gaps / not yet verified
 
 - **Launch-at-Login registration itself is unverified.** `LaunchAtLoginController`
@@ -348,13 +457,27 @@ out of the main popover entirely so it's purely audio controls.
   rows, which do handle this) still doesn't react to the user switching the
   *system default* output device mid-session for apps at "No Redirect" —
   only an explicit redirect target's own disconnect/reconnect is handled.
+- **"Check for Updates…" has never actually been clicked.** The menu item,
+  `SoriUpdaterController`, and the full sign/appcast/release pipeline are
+  built and a real 1.1 release exists in the feed, but nobody has clicked
+  the button and watched Sparkle's own UI find and offer it - same
+  Accessibility-permission limitation as every other UI click-through gap
+  above.
+- **Builds are not notarized.** Every install and every future update will
+  trip Gatekeeper on any Mac other than the build machine - by design for
+  now (documented in `RELEASING.md`), not an oversight, but worth revisiting
+  if wider distribution is ever wanted (Developer ID cert + `notarytool`).
 
 ## Next
 
 Pick up next session with the Launch-at-Login ground-truth check first (top
 item under Known gaps) - toggle it on/off against the real System Settings
-Login Items list, since that's the actual feature this session set out to
-build and it hasn't been confirmed working yet. Get a fresh screenshot of the
+Login Items list, since that's the actual feature that session set out to
+build and it still hasn't been confirmed working. While in the app, also
+click "Check for Updates…" and confirm Sparkle actually finds and offers
+1.1 (it won't, from a fresh 1.1 install with nothing newer in the feed - use
+a 1.0 build if one's still around, or bump a throwaway 1.2 in the feed
+temporarily to test the flow, then revert). Get a fresh screenshot of the
 gear icon's final no-arrow/nudged-right state while at it. After that: the
 older carried-over list is unchanged - CPU-cost-vs-adaptive-polling,
 multi-PID grouping under real simultaneous load, and the 200% per-app boost
