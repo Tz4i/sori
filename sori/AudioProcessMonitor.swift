@@ -119,7 +119,20 @@ final class AudioProcessMonitor {
             // process's own entry.
             let runningApps = NSWorkspace.shared.runningApplications
             let runningApplicationBundleIDs = Set(runningApps.compactMap(\.bundleIdentifier))
-            let runningAppsByPID = Dictionary(uniqueKeysWithValues: runningApps.map { ($0.processIdentifier, $0) })
+            // NSRunningApplication.processIdentifier returns -1 (or, in principle,
+            // could otherwise collide) for an app that's transitioning in/out of
+            // existence - not a valid audio process, and not a safe dictionary
+            // key. Confirmed live as the cause of a real crash: two apps in that
+            // transient state during the same poll produced two `-1` entries,
+            // and `Dictionary(uniqueKeysWithValues:)` fatal-traps on a duplicate
+            // key. Filter those out first, then use `uniquingKeysWith:` (same
+            // pattern as `runningAppsByName` below) as defense-in-depth so even
+            // a genuine collision degrades to "first one wins" instead of
+            // crashing.
+            let runningAppsByPID = Dictionary(
+                runningApps.compactMap { app in app.processIdentifier > 0 ? (app.processIdentifier, app) : nil },
+                uniquingKeysWith: { first, _ in first }
+            )
             let runningAppsByName = Dictionary(
                 runningApps.compactMap { app in app.localizedName.map { ($0, app) } },
                 uniquingKeysWith: { first, _ in first }

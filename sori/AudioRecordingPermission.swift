@@ -43,8 +43,14 @@ final class AudioRecordingPermission {
         }
     }
 
-    /// Triggers the system TCC prompt for `kTCCServiceAudioCapture`, if the OS
-    /// hasn't already made a permanent decision for this app.
+    /// Triggers the system TCC prompt for `kTCCServiceAudioCapture`. Only
+    /// actually shows a dialog when `status == .unknown` (no decision on
+    /// record yet) - once macOS has recorded ANY decision, `.denied` or
+    /// `.authorized`, this silently replays that recorded decision instead of
+    /// prompting again, even if the user later toggled the setting off in
+    /// System Settings. Callers must check `status` first and route to
+    /// `openSystemSettingsPrivacyPane()` instead once it's `.denied` - see
+    /// that method's doc comment.
     func request() {
         logger.debug(#function)
 
@@ -62,6 +68,27 @@ final class AudioRecordingPermission {
                 self.status = granted ? .authorized : .denied
             }
         }
+    }
+
+    /// Opens System Settings directly to the "Screen & System Audio
+    /// Recording" privacy pane - the ONLY remaining path back to `.authorized`
+    /// once `status` is `.denied`, since macOS will not show the TCC consent
+    /// dialog a second time after any decision is recorded (see `request()`).
+    /// `Privacy_ScreenCapture` is the correct anchor even though this
+    /// permission is "System Audio Recording," not screen recording - Apple
+    /// groups both under the same pane (confirmed via Apple's own support
+    /// documentation, "Control access to screen and system audio recording on
+    /// Mac"). Note for the caller's UI copy: Apple's own guidance is that
+    /// toggling the switch there does not take effect until the app is fully
+    /// quit and reopened, not just brought back to the foreground - tell the
+    /// user this explicitly rather than leaving them to wonder why the
+    /// permission banner didn't immediately disappear.
+    func openSystemSettingsPrivacyPane() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+            logger.fault("Failed to construct Privacy_ScreenCapture settings URL")
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func updateStatus() {

@@ -16,6 +16,7 @@
 		4287CF8E4CA841D7962477A4 /* AppVolumeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52264B5901439EBA8D79D002 /* AppVolumeController.swift */; };
 		59FCCF6816532CC2ECCB735A /* AudioRecordingPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F2262ADE9E0B6C452D0E29A /* AudioRecordingPermission.swift */; };
 		8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1533010DF07980794E70513D /* SoriApp.swift */; };
+		BF176271627C870D5600E932 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */; };
 		C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6912BFC8A668570AA186BCA /* SystemAudioController.swift */; };
 		E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */; };
 /* End PBXBuildFile section */
@@ -24,6 +25,7 @@
 		1533010DF07980794E70513D /* SoriApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriApp.swift; sourceTree = "<group>"; };
 		1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreAudioTapSupport.swift; sourceTree = "<group>"; };
 		24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessMonitor.swift; sourceTree = "<group>"; };
+		51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginController.swift; sourceTree = "<group>"; };
 		52264B5901439EBA8D79D002 /* AppVolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVolumeController.swift; sourceTree = "<group>"; };
 		59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriOwnedAggregateDevices.swift; sourceTree = "<group>"; };
 		5F2262ADE9E0B6C452D0E29A /* AudioRecordingPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecordingPermission.swift; sourceTree = "<group>"; };
@@ -46,6 +48,7 @@
 				77B8DFE06311AB8FFF9DC009 /* AvailableAudioDevices.swift */,
 				1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */,
 				E1B286BF6FA6C7C04E82F62B /* Info.plist */,
+				51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */,
 				739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */,
 				1533010DF07980794E70513D /* SoriApp.swift */,
 				A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */,
@@ -136,6 +139,7 @@
 				59FCCF6816532CC2ECCB735A /* AudioRecordingPermission.swift in Sources */,
 				1EC9FC455C72116C3C62E980 /* AvailableAudioDevices.swift in Sources */,
 				093A43BEEC3FBADA10A00DF4 /* CoreAudioTapSupport.swift in Sources */,
+				BF176271627C870D5600E932 /* LaunchAtLoginController.swift in Sources */,
 				0A5E0E41CDF03DB7C1B89A3E /* ProcessAudioTapEngine.swift in Sources */,
 				8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */,
 				329FFAB4784D53895A73F355 /* SoriDebugLog.swift in Sources */,

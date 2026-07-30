@@ -28,6 +28,9 @@ Bundle ID: `com.sebastianzapata.sori`. Deployment target: macOS 14.4.
 - `sori/TapEngineDiagnosticTest.swift` — temporary env-var-gated diagnostic
   (`SORI_RUN_TAP_TEST=1`), safe to delete once the engine has a real caller
   beyond volume control (kept for now as a quick sanity check).
+- `sori/LaunchAtLoginController.swift` — "Launch 소리 at Login" toggle backed
+  by `SMAppService.mainApp` (macOS 13+), surfaced in `SoriApp.swift`'s gear
+  settings menu.
 
 ## Building and running
 
@@ -340,6 +343,52 @@ turn. Don't re-litigate them without re-testing first.
       than assuming it if a future macOS release is the trigger for
       revisiting it - undocumented behavior like this is exactly the kind
       that changes across OS versions without notice.
+
+## Login item & popover-chrome notes (not Core Audio, kept separate from the
+numbered list above on purpose - these are SwiftUI/AppKit/ServiceManagement
+findings, not Core Audio ones)
+
+- **`SMAppService.mainApp` is the whole story for "launch at login" - no
+  helper-app target needed.** Unlike the deprecated `SMLoginItemSetEnabled`
+  (which required a separate helper `.app` embedded in the bundle),
+  `SMAppService.mainApp.register()`/`.unregister()` register the main app
+  bundle directly. `LaunchAtLoginController` wraps this as a thin,
+  re-readable reflection of `SMAppService.mainApp.status` (`.enabled`,
+  `.requiresApproval`, `.notRegistered`, `.notFound`), same philosophy as
+  `SystemDeviceVolumeController` toward hardware volume - the system, not
+  Sori, is the source of truth, and `.requiresApproval` still reads as "on"
+  for the toggle since registration itself succeeded.
+- **`SMAppService.openSystemSettingsLoginItems()` is the correct way to send
+  the user to the Login Items & Extensions pane** for the `.requiresApproval`
+  case, not a hand-built `x-apple.systempreferences:` URL scheme - it's the
+  officially supported static method added alongside `SMAppService` itself,
+  so it won't silently break across a future System Settings redesign the
+  way a guessed URL scheme could.
+- **A `Toggle` inside a SwiftUI `Menu` renders as a real checkable
+  `NSMenuItem`** (checkmark-style, same as a normal macOS app's "Launch at
+  Login" menu command) - this is how the gear-icon settings menu
+  (`SettingsMenu` in `SoriApp.swift`) hosts the login-item toggle natively,
+  without needing a separate checkbox control or custom menu-item view.
+- **`.menuIndicator(.hidden)` (SwiftUI, macOS 14+) removes the small
+  disclosure chevron a `Menu` styled with `.menuStyle(.borderlessButton)`
+  draws next to an icon-only label.** Used on the footer gear icon so it
+  reads as a plain icon button, not an icon-plus-caret control; the
+  per-app/System-section device-picker menus (`RedirectDeviceMenu`,
+  `SystemDeviceMenu`) still show their chevron deliberately, since those
+  *are* pickers where the caret is the correct affordance.
+- **`MenuBarExtra(.window)`'s content view persists across opens rather than
+  being torn down and rebuilt** (this is *why* trap #12 above was ever a
+  problem in the first place) - so a plain SwiftUI `.onAppear` won't refire
+  every time the user reopens the popover. Since this app has no other
+  window (`LSUIElement`, no main window), listening for
+  `NSWindow.didBecomeKeyNotification` via
+  `NotificationCenter.default.publisher(for:)` is a reliable stand-in for
+  "the popover just opened," used to re-read `SMAppService`'s live status in
+  case the user changed it from System Settings directly while the popover
+  was closed. **Not yet independently verified live** that this notification
+  actually fires on every popover open on this macOS build - implemented and
+  reasoned through, same unverified status as the rest of this feature (see
+  PROGRESS.md).
 
 ## Style notes
 

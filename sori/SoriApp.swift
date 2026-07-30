@@ -23,6 +23,7 @@ struct SoriApp: App {
     private let systemOutput: SystemDeviceVolumeController
     private let systemInput: SystemDeviceVolumeController
     private let systemAlert = SystemAlertVolumeController()
+    private let launchAtLogin = LaunchAtLoginController()
 
     init() {
         let availableDevices = AvailableAudioDevices()
@@ -50,7 +51,8 @@ struct SoriApp: App {
                 availableDevices: availableDevices,
                 systemOutput: systemOutput,
                 systemInput: systemInput,
-                systemAlert: systemAlert
+                systemAlert: systemAlert,
+                launchAtLogin: launchAtLogin
             )
         } label: {
             Image(nsImage: Self.menuBarIcon)
@@ -117,19 +119,19 @@ private struct MenuContentView: View {
     var systemOutput: SystemDeviceVolumeController
     var systemInput: SystemDeviceVolumeController
     var systemAlert: SystemAlertVolumeController
+    var launchAtLogin: LaunchAtLoginController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                switch permission.status {
-                case .authorized:
-                    Label("Audio permission granted", systemImage: "checkmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                case .denied, .unknown:
-                    Button("Grant Audio Permission…") {
-                        permission.request()
-                    }
+                // Loud exception to "settings are tucked away": a missing/
+                // revoked permission means the app plainly can't function,
+                // so this stays on the main surface - not hidden behind the
+                // gear menu - until it's granted. Once granted, the quiet
+                // status line lives in the settings menu instead (see
+                // `SettingsMenu`).
+                if permission.status != .authorized {
+                    PermissionRequiredBanner(permission: permission)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -176,15 +178,31 @@ private struct MenuContentView: View {
 
             Divider()
 
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Text("Quit Sori")
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                // Quit deliberately isn't nested inside SettingsMenu: it
+                // already has a confirmed-live ⌘Q shortcut as a plain
+                // button, and nesting it inside the gear's Menu would risk
+                // that keyEquivalent only firing while the submenu itself is
+                // open rather than whenever the popover is - not worth the
+                // regression for what's one tap away either way.
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Text("Quit Sori")
+                        .foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("q", modifiers: .command)
+
+                Spacer()
+
+                // App-level "chrome" (login item toggle, granted-permission
+                // status) tucked behind this gear, sharing the footer row
+                // with Quit rather than floating separately up in the
+                // header - keeps both of the popover's non-audio controls
+                // in one predictable place.
+                SettingsMenu(permission: permission, launchAtLogin: launchAtLogin)
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut("q", modifiers: .command)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
@@ -197,6 +215,16 @@ private struct MenuContentView: View {
         // panels and popovers.
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // MenuBarExtra(.window)'s content view persists across opens rather
+        // than being rebuilt each time (see CLAUDE.md trap #12), so a plain
+        // `.onAppear` wouldn't refire on every open. This window is the
+        // app's only window (LSUIElement, no main window), so listening for
+        // it becoming key is a reliable stand-in for "the popover just
+        // opened" - used to re-read SMAppService's live status in case the
+        // user changed it from System Settings > Login Items directly.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            launchAtLogin.refreshStatus()
+        }
     }
 
     private var appRows: some View {
@@ -340,6 +368,115 @@ private func deviceMenuItemLabel(_ title: String, isSelected: Bool) -> some View
         Label(title, systemImage: "checkmark")
     } else {
         Text(title)
+    }
+}
+
+/// The gear-triggered app-settings menu - a real SwiftUI `Menu`, so it opens
+/// as a proper NSMenu-backed dropdown (matching how a `Toggle` inside it
+/// renders as a native checkable menu item, the same look as e.g. a normal
+/// macOS app's "Launch at Login" menu command). Deliberately excludes Quit -
+/// see the comment at its call site in `MenuContentView`.
+private struct SettingsMenu: View {
+    let permission: AudioRecordingPermission
+    let launchAtLogin: LaunchAtLoginController
+
+    var body: some View {
+        Menu {
+            // Quiet by design: shown only once granted. A missing/revoked
+            // permission is surfaced loudly on the main surface instead
+            // (`PermissionRequiredBanner`), never hidden behind this menu.
+            if permission.status == .authorized {
+                Label("Audio permission granted", systemImage: "checkmark.circle")
+            }
+
+            Toggle(isOn: Binding(
+                get: { launchAtLogin.isEnabled },
+                set: { launchAtLogin.isEnabled = $0 }
+            )) {
+                Text("Launch 소리 at Login")
+            }
+
+            if launchAtLogin.needsApprovalHint {
+                Button("Open Login Items Settings…") {
+                    launchAtLogin.openLoginItemsSettings()
+                }
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        // Without the disclosure arrow, the icon's own hit-target padding
+        // leaves it looking off-center in the footer row - nudge it right
+        // to sit flush against the trailing edge like "Quit Sori" does on
+        // the leading edge.
+        .offset(x: 6)
+    }
+}
+
+/// Loud, hard-to-miss callout for a missing/denied/unknown TCC audio-capture
+/// permission - the deliberate visual opposite of the quiet, settings-menu
+/// status line shown once granted (`SettingsMenu`). Without this permission
+/// the tap engine can't function at all, so it stays on the main surface
+/// rather than waiting for the user to notice it's missing from a gear menu.
+private struct PermissionRequiredBanner: View {
+    let permission: AudioRecordingPermission
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Audio Permission Required", systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.orange)
+            Text("소리 can't control app volumes until it's granted permission to capture system audio.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                // Without this, this Text was confirmed live to truncate
+                // ("...granted p...") instead of wrapping within the fixed
+                // 300pt popover width - .fixedSize(horizontal:false,...) is
+                // what tells SwiftUI to keep the proposed (wrap-constrained)
+                // width but grow height to fit every line, instead of
+                // collapsing to a single-line ideal size and truncating.
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Once macOS has recorded ANY decision for this permission -
+            // `.denied` covers both "clicked Don't Allow the first time" and
+            // "toggled an existing grant off later in System Settings" - the
+            // consent dialog will never show again; TCCAccessRequest just
+            // silently replays the recorded decision. So `.denied` needs a
+            // completely different affordance (open System Settings) than
+            // `.unknown` (never asked - request() can still show the real
+            // prompt).
+            if permission.status == .denied {
+                Text("소리 was previously denied this permission. Re-enable it for 소리 in System Settings, then quit and reopen 소리 - toggling it on alone doesn't take effect until the app relaunches.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open System Settings…") {
+                    permission.openSystemSettingsPrivacyPane()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            } else {
+                Button("Grant Audio Permission…") {
+                    permission.request()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.orange.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.3), lineWidth: 1)
+        )
     }
 }
 

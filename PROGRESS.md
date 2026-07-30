@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-23
+Last updated: 2026-07-27
 
 ## Done
 
@@ -233,8 +233,77 @@ macOS Human Interface Guidelines rather than a custom visual language.
   earlier macOS build). **The live re-test itself has not happened yet**
   (deferred to next session) - see Known gaps.
 
+**Launch at Login + gear settings menu (`LaunchAtLoginController`,
+`SoriApp.swift`)** — requested as two related asks: add a "Launch 소리 at
+Login" option via the modern `SMAppService` API, then pull app-level chrome
+out of the main popover entirely so it's purely audio controls.
+- `LaunchAtLoginController` wraps `SMAppService.mainApp` — default OFF
+  (nothing registers itself without the user opting in), `register()`/
+  `unregister()` on toggle, `status` re-read via `refreshStatus()` rather
+  than cached, since the system (not Sori) is the source of truth if the
+  user removes/pauses it directly in System Settings. `.requiresApproval`
+  still reads as "on" for the toggle, with a menu item to jump straight to
+  System Settings via `SMAppService.openSystemSettingsLoginItems()` (the
+  officially supported deep link, not a hand-built URL scheme).
+- Main popover restructured to hold only System + Applications — the
+  audio-permission status line and the Launch-at-Login toggle both moved
+  behind a small `gearshape` icon (`SettingsMenu`), a real SwiftUI `Menu` so
+  the toggle renders as a native checkable `NSMenuItem`. **Exception, per
+  explicit request**: permission status is only quiet/tucked-away once
+  *granted* — if it's missing/denied/unknown, a loud orange-tinted
+  `PermissionRequiredBanner` with a prominent "Grant Audio Permission…"
+  button stays on the main surface instead, since the app can't function at
+  all without it.
+- Gear icon iterated per live user feedback across a few rounds: started
+  top-right of a dedicated header row, then moved onto the same footer row
+  as "Quit Sori" (trailing-aligned via `Spacer()`) per user request so both
+  non-audio controls share one predictable place; the menu's default
+  disclosure chevron was then removed (`.menuIndicator(.hidden)`, macOS 14+)
+  and the icon nudged right (`.offset(x: 6)`) to close the dead space that
+  left behind. Quit itself deliberately was **not** folded into the gear
+  menu — it already has a confirmed-live ⌘Q shortcut as a plain footer
+  button, and nesting it inside the settings `Menu` risked that keyEquivalent
+  only firing while the submenu itself is open rather than whenever the
+  popover is.
+- Menu bar icon rendering was independently re-confirmed live this session
+  via a tightly-cropped (not full-screen) screenshot: three rounded bars,
+  short/tall/medium, matching the `[8, 15, 11]` heights in code.
+- **Not yet done: the actual functional verification this feature was built
+  for.** Toggling it on/off and confirming it actually appears/disappears
+  from System Settings > General > Login Items & Extensions was the
+  original ask, but the session got pulled into UI-layout iteration
+  (gear placement, arrow, offset) before that ground-truth check happened.
+  Do this first next session - see Known gaps and Next.
+
 ## Known gaps / not yet verified
 
+- **Launch-at-Login registration itself is unverified.** `LaunchAtLoginController`
+  is implemented and the app builds/runs, but nobody has yet: toggled it on
+  and confirmed "sori" appears in System Settings > General > Login Items &
+  Extensions; toggled it off and confirmed it disappears; or exercised the
+  `.requiresApproval` path (register succeeds but macOS gates on user
+  approval - the hint + "Open Login Items Settings…" button are implemented
+  but untested). `sfltool dumpbtm` was checked once before any toggling and
+  showed no `sori` entry, confirming the default-OFF requirement only - not
+  the register/unregister path itself.
+- **The gear-icon settings menu's final layout (no chevron, nudged right)
+  has not been visually re-confirmed live.** The user saw and liked the
+  gear-on-the-Quit-row placement via screenshot, then asked for the arrow
+  removed and the icon nudged - that change was built and the app relaunched,
+  but no screenshot/confirmation came back afterward before the session
+  ended.
+- **`NSWindow.didBecomeKeyNotification` as a proxy for "the popover just
+  reopened"** (used to call `LaunchAtLoginController.refreshStatus()`) is
+  implemented and reasoned through (see CLAUDE.md's new "Login item &
+  popover-chrome notes" section) but not independently confirmed to actually
+  fire on every popover open on this macOS build.
+- Driving this app's UI directly (clicking the menu bar icon, the gear, the
+  toggle) isn't something Claude can do in this environment - `osascript`/
+  System Events lacks Accessibility permission here (`-1719` error), so
+  verification of new UI depends on the user's own clicks + screenshots
+  rather than automated interaction. Worth granting Accessibility access to
+  whichever terminal app hosts these sessions if more automated UI
+  verification is wanted going forward.
 - **User-confirmed live (2026-07-26), all four items from the previous
   session's HIG-native UI polish pass:**
   - Popover dynamic-resize-while-open (the CLAUDE.md trap #12 re-test) -
@@ -282,9 +351,11 @@ macOS Human Interface Guidelines rather than a custom visual language.
 
 ## Next
 
-All four items carried over from the HIG-native UI polish pass (popover
-resize, ⌘Q, rest of the polish pass, System-section device pickers) are now
-user-confirmed live - see Known gaps above. Pick up next session with the
-remaining open items: CPU-cost-vs-adaptive-polling, multi-PID grouping under
-real simultaneous load, and the 200% per-app boost limiter (all still
-unverified by ear/under load, see Known gaps).
+Pick up next session with the Launch-at-Login ground-truth check first (top
+item under Known gaps) - toggle it on/off against the real System Settings
+Login Items list, since that's the actual feature this session set out to
+build and it hasn't been confirmed working yet. Get a fresh screenshot of the
+gear icon's final no-arrow/nudged-right state while at it. After that: the
+older carried-over list is unchanged - CPU-cost-vs-adaptive-polling,
+multi-PID grouping under real simultaneous load, and the 200% per-app boost
+limiter (all still unverified by ear/under load, see Known gaps).
