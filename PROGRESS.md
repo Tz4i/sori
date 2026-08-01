@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Done
 
@@ -384,6 +384,67 @@ URL for up to 5 minutes (`cache-control: max-age=300`) - verify what was
 actually pushed via `git show HEAD:appcast.xml` rather than assuming a
 CDN response is current.
 
+**Code review fixes + CPU investigation (2026-07-31)** — a detailed code
+review of Sori surfaced eight small, low-risk, high-value findings; all
+eight were applied in one pass, verified with a clean `xcodebuild` build.
+- `AudioProcessMonitor`'s and `SystemAlertVolumeController`'s poll timers
+  switched from `Timer.scheduledTimer` (fires only in the `.default` run
+  loop mode) to `Timer` + `RunLoop.main.add(_:forMode: .common)` -
+  `NSEventTrackingRunLoopMode` was silently freezing both while any NSMenu
+  (a redirect picker, the gear menu) was open.
+- `CoreAudioTapSupport.swift`'s `readDeviceList()` doc comment corrected -
+  it previously claimed private aggregates never appear in
+  `kAudioHardwarePropertyDevices`, directly contradicting trap #19 and
+  risking the `SoriOwnedAggregateDevices` filter being "cleaned up" by a
+  future pass that trusted the comment over the code.
+- `ProcessAudioTapEngine.process()` now `memset`s any output buffer bytes
+  it doesn't explicitly write (buffers past the input count, buffers with a
+  nil `mData`, trailing bytes when an output buffer is larger than its
+  matching input) - Core Audio doesn't promise zeroed output buffers, so
+  these paths were previously rendering stale memory.
+- `SoriDebugLog` switched from the throwing-ObjC-exception
+  `FileHandle.write(_:)` to `try? handle.write(contentsOf:)`, and now
+  re-checks rotation every 200 writes instead of only at launch, so a
+  long-running session can't grow the log file unbounded.
+- `AppVolumeController.pinnedBundleIdentifiers()`'s result is now cached
+  (invalidated on `persistGain`/`persistMuted`/`persistRedirectDevice`)
+  instead of scanning `UserDefaults.standard.dictionaryRepresentation()`
+  4x/sec.
+- `AudioProcessMonitor`'s `entries`/`volumeControllers` properties are now
+  guarded on inequality before assignment, instead of writing (and waking
+  every `@Observable` reader) unconditionally on every poll tick regardless
+  of whether anything actually changed.
+- The pid -> owning-app resolution chain (NSRunningApplication/WebKit-suffix/
+  parent-chain/bundle-climb) is now cached per pid (`groupKeyCache`), since a
+  pid's owning app can't change over its lifetime.
+
+**CPU investigation, done properly rather than guessed at.** The
+fix-batch's first CPU re-measurement was contaminated (before/after taken
+under different system load), so a controlled A/B was run instead -
+identical frozen app set (Safari, Discord PTB, Music, Claude, NordVPN,
+Finder, Terminal, Sideloadly), nothing launched/quit between runs. That A/B
+showed the pid-resolution cache and the other per-tick guards made **no
+measurable difference** to idle CPU (5.38% either way) - confirmed via a
+`SORI_PROFILE_REFRESH`-gated timing breakdown (temporary, removed after use)
+that the real cost was `NSWorkspace.shared.runningApplications` + rebuilding
+its two lookup dictionaries from scratch every single 250ms tick (~16-24ms
+of a ~31-39ms tick - roughly double the next-largest cost, and two orders of
+magnitude past everything else in `refresh()` combined). Fixed by caching
+that snapshot as instance state, invalidated only by
+`NSWorkspace.didLaunchApplicationNotification`/`didTerminateApplicationNotification`
+- see CLAUDE.md trap #21 for the full design (dirty-flag lazy rebuild,
+negative caching for genuinely-unresolvable pids, a bounded once-per-tick
+fallback re-snapshot for the launch-notification-vs-poll-tick race).
+Re-measured under the same frozen app set: **idle CPU dropped from 5.38% to
+1.85%** at the same 250ms poll interval - confirming the earlier "adaptive
+polling" idea in Known Gaps was aimed at the wrong lever (frequency) when
+the actual cost was per-tick work; that Known Gaps entry is now resolved and
+removed below. Verified "existing app starts playing" detection (the entire
+reason for polling at 250ms in the first place) still works and is still
+independent of this cache: a live `afplay` test showed 229ms from process
+launch to detection, 25ms from playback ending to the pid being dropped -
+both within one poll tick, unchanged from before this cache existed.
+
 ## Known gaps / not yet verified
 
 - **Launch-at-Login registration itself is unverified.** `LaunchAtLoginController`
@@ -426,13 +487,6 @@ CDN response is current.
     treatments, boost tint, menu bar icon) - looks good.
   - System OUTPUT/INPUT device pickers (`SystemDeviceMenu`) - work, switch
     the system-wide default device as expected.
-- **250ms poll's CPU cost (~4.4% avg, up from ~1.3% at 1s) is an open
-  question, not a settled tradeoff.** Acceptable for now, but a candidate
-  future optimization is adaptive polling — e.g. poll fast (250ms) only
-  while the menu is open or something is actively producing audio, and back
-  off toward the old 1s (or slower) the rest of the time, rather than
-  paying the fast-poll cost at all times regardless of whether anyone's
-  looking or listening.
 - **Multi-PID grouping under real simultaneous load is unverified by ear.**
   Confirmed structurally (the resolution/grouping code path is exercised and
   correct) and confirmed at the data layer for single-PID-per-app cases live,
@@ -479,6 +533,6 @@ click "Check for Updates…" and confirm Sparkle actually finds and offers
 a 1.0 build if one's still around, or bump a throwaway 1.2 in the feed
 temporarily to test the flow, then revert). Get a fresh screenshot of the
 gear icon's final no-arrow/nudged-right state while at it. After that: the
-older carried-over list is unchanged - CPU-cost-vs-adaptive-polling,
-multi-PID grouping under real simultaneous load, and the 200% per-app boost
-limiter (all still unverified by ear/under load, see Known gaps).
+older carried-over list is unchanged - multi-PID grouping under real
+simultaneous load, and the 200% per-app boost limiter (both still unverified
+by ear/under load, see Known gaps).

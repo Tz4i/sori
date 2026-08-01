@@ -20,7 +20,7 @@
 		A25872141D12910292F59C3E /* SoriUpdaterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3683CAADA92A88E04050D086 /* SoriUpdaterController.swift */; };
 		BF176271627C870D5600E932 /* LaunchAtLoginController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */; };
 		C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6912BFC8A668570AA186BCA /* SystemAudioController.swift */; };
-		E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */; };
+		C7E1B2479EB89391B0D57F02 /* OrphanedAggregateSweeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38767E4620D60632D078B3C9 /* OrphanedAggregateSweeper.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +28,7 @@
 		1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreAudioTapSupport.swift; sourceTree = "<group>"; };
 		24FF9E47387FD4A41414A718 /* AudioProcessMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProcessMonitor.swift; sourceTree = "<group>"; };
 		3683CAADA92A88E04050D086 /* SoriUpdaterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriUpdaterController.swift; sourceTree = "<group>"; };
+		38767E4620D60632D078B3C9 /* OrphanedAggregateSweeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrphanedAggregateSweeper.swift; sourceTree = "<group>"; };
 		51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLoginController.swift; sourceTree = "<group>"; };
 		52264B5901439EBA8D79D002 /* AppVolumeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVolumeController.swift; sourceTree = "<group>"; };
 		59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriOwnedAggregateDevices.swift; sourceTree = "<group>"; };
@@ -35,7 +36,6 @@
 		5FE55A713268D627A6B6A4A8 /* sori.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = sori.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessAudioTapEngine.swift; sourceTree = "<group>"; };
 		77B8DFE06311AB8FFF9DC009 /* AvailableAudioDevices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvailableAudioDevices.swift; sourceTree = "<group>"; };
-		85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapEngineDiagnosticTest.swift; sourceTree = "<group>"; };
 		A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoriDebugLog.swift; sourceTree = "<group>"; };
 		E1B286BF6FA6C7C04E82F62B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E6912BFC8A668570AA186BCA /* SystemAudioController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioController.swift; sourceTree = "<group>"; };
@@ -63,13 +63,13 @@
 				1F74D3FA7C329A6040320529 /* CoreAudioTapSupport.swift */,
 				E1B286BF6FA6C7C04E82F62B /* Info.plist */,
 				51BBB5F7EBBCF8B199560FEB /* LaunchAtLoginController.swift */,
+				38767E4620D60632D078B3C9 /* OrphanedAggregateSweeper.swift */,
 				739D2CAF93427E4F754DBCF9 /* ProcessAudioTapEngine.swift */,
 				1533010DF07980794E70513D /* SoriApp.swift */,
 				A3928C31198232B8B3F9D09C /* SoriDebugLog.swift */,
 				59EACA54B456EBBF7944CB75 /* SoriOwnedAggregateDevices.swift */,
 				3683CAADA92A88E04050D086 /* SoriUpdaterController.swift */,
 				E6912BFC8A668570AA186BCA /* SystemAudioController.swift */,
-				85B58B488E332B679E43C963 /* TapEngineDiagnosticTest.swift */,
 			);
 			path = sori;
 			sourceTree = "<group>";
@@ -160,13 +160,13 @@
 				1EC9FC455C72116C3C62E980 /* AvailableAudioDevices.swift in Sources */,
 				093A43BEEC3FBADA10A00DF4 /* CoreAudioTapSupport.swift in Sources */,
 				BF176271627C870D5600E932 /* LaunchAtLoginController.swift in Sources */,
+				C7E1B2479EB89391B0D57F02 /* OrphanedAggregateSweeper.swift in Sources */,
 				0A5E0E41CDF03DB7C1B89A3E /* ProcessAudioTapEngine.swift in Sources */,
 				8D6ADFE645EC54088B911EBF /* SoriApp.swift in Sources */,
 				329FFAB4784D53895A73F355 /* SoriDebugLog.swift in Sources */,
 				17D9F129D86ABE8AEDD43A85 /* SoriOwnedAggregateDevices.swift in Sources */,
 				A25872141D12910292F59C3E /* SoriUpdaterController.swift in Sources */,
 				C2F4995FA72DC9AB6C63E6B2 /* SystemAudioController.swift in Sources */,
-				E61B0E7A22F94CFAC4B6320B /* TapEngineDiagnosticTest.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

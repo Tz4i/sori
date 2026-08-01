@@ -92,10 +92,16 @@ extension AudioObjectID {
 
     /// Reads `kAudioHardwarePropertyDevices`: every device Core Audio
     /// currently knows about, hardware and virtual/aggregate alike.
-    /// Confirmed live: a *private* aggregate device (our own per-app/per-tap
-    /// scratch devices) does NOT appear here - Core Audio hides those from
-    /// this list entirely, so no manual filtering-out-our-own-devices logic
-    /// is needed.
+    /// Confirmed live (CLAUDE.md trap #19): a *private* aggregate device
+    /// (our own per-app/per-tap scratch devices) is invisible to OTHER
+    /// processes enumerating this property, but IS visible to its own
+    /// creating process's enumeration of it - i.e. Sori sees its own
+    /// aggregates right here. Manual filtering is required: see
+    /// `SoriOwnedAggregateDevices`, which `AvailableAudioDevices.refresh()`
+    /// checks every own-created aggregate UID against before publishing this
+    /// list. Removing that filter reintroduces a real, previously-shipped
+    /// bug - a self-sustaining rebuild loop where every tap's freshly-UUID'd
+    /// aggregate looked like a new device to Sori itself.
     static func readDeviceList() throws -> [AudioObjectID] {
         try AudioObjectID.systemObject.readDeviceList()
     }
@@ -128,6 +134,17 @@ extension AudioObjectID {
         var dataSize: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(self, &address, 0, nil, &dataSize) == noErr else { return 0 }
         return Int(dataSize) / MemoryLayout<AudioStreamID>.size
+    }
+
+    /// True if this device's `kAudioDevicePropertyTransportType` is
+    /// `kAudioDeviceTransportTypeAggregate` - the reliable way to confirm
+    /// "this is actually an aggregate device," independent of its name.
+    /// `OrphanedAggregateSweeper` requires this in addition to a
+    /// `Sori-Tap-` name-prefix match before ever destroying anything, so a
+    /// user's own real device that happens to share the name prefix can
+    /// never be touched.
+    var isAggregateDevice: Bool {
+        (try? read(kAudioDevicePropertyTransportType, defaultValue: UInt32(0))) == kAudioDeviceTransportTypeAggregate
     }
 
     /// Reads `kAudioProcessPropertyPID` for a Core Audio process object.

@@ -27,6 +27,15 @@ struct SoriApp: App {
     private let updater = SoriUpdaterController()
 
     init() {
+        // Must run before anything below - `AvailableAudioDevices` does its
+        // first device-list read in its own `init`, and `AudioProcessMonitor`
+        // can synchronously start a tap in its very first `refresh()` if a
+        // pinned app already has a persisted non-default gain and is already
+        // producing audio at launch. Sweeping first means neither ever sees
+        // (or could race with destroying) an aggregate orphaned by a
+        // previous crashed launch. See `OrphanedAggregateSweeper`.
+        OrphanedAggregateSweeper.sweepAtLaunch()
+
         let availableDevices = AvailableAudioDevices()
         self.availableDevices = availableDevices
         self.processMonitor = AudioProcessMonitor(availableDevices: availableDevices)
@@ -41,7 +50,6 @@ struct SoriApp: App {
             FileHandle.standardError.write("SORI: pre-request status=\(permission.status)\n".data(using: .utf8)!)
             permission.request()
         }
-        TapEngineDiagnosticTest.runIfRequested()
     }
 
     var body: some Scene {

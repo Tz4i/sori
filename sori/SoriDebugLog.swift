@@ -30,6 +30,16 @@ enum SoriDebugLog {
     // a crash without the file growing unbounded across days of normal use.
     private static let maxFileSize: UInt64 = 5 * 1024 * 1024
 
+    // Rotation was previously only ever checked once, at `openLogFile()`
+    // (app launch) - a session that runs for days without relaunching would
+    // let the file grow past `maxFileSize` indefinitely, since nothing
+    // revisited it afterward. Re-checking on every single write is
+    // unnecessary overhead for a realtime-adjacent logger; every N writes is
+    // frequent enough that the file can't meaningfully overshoot the cap
+    // between checks.
+    private static let rotationCheckInterval = 200
+    private static var writesSinceRotationCheck = 0
+
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
         // Full date, not just time-of-day: this file is expected to span many
@@ -39,7 +49,7 @@ enum SoriDebugLog {
         return f
     }()
 
-    private static let fileHandle: FileHandle? = openLogFile()
+    private static var fileHandle: FileHandle? = openLogFile()
 
     static func log(_ message: @autoclosure () -> String) {
         let line = "[\(formatter.string(from: Date()))] \(message())\n"
@@ -48,7 +58,31 @@ enum SoriDebugLog {
         if isEnabled {
             FileHandle.standardError.write(data)
         }
-        fileHandle?.write(data)
+
+        // `FileHandle.write(_:)` (the Objective-C-bridged method) throws an
+        // uncatchable NSException - not a Swift error - on a write failure
+        // such as a full disk, which would crash this logger's own caller.
+        // `write(contentsOf:)` is the Swift-native throwing alternative;
+        // `try?` just drops the log line rather than taking the app down
+        // over a logging failure.
+        try? fileHandle?.write(contentsOf: data)
+
+        writesSinceRotationCheck += 1
+        if writesSinceRotationCheck >= rotationCheckInterval {
+            writesSinceRotationCheck = 0
+            rotateIfNeeded()
+        }
+    }
+
+    /// Re-opens the log file if it's grown past `maxFileSize` since launch -
+    /// `openLogFile()` already contains the actual rotate-if-oversized logic
+    /// (move current file to `.1`, start a fresh one), so this just closes
+    /// the stale handle and calls it again rather than duplicating that
+    /// logic here.
+    private static func rotateIfNeeded() {
+        guard let handle = fileHandle, handle.offsetInFile > maxFileSize else { return }
+        try? handle.close()
+        fileHandle = openLogFile()
     }
 
     private static var logDirectory: URL? {

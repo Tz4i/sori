@@ -93,6 +93,30 @@ final class AppVolumeController {
     private static let rebuildLoopThreshold = 5
     private static let rebuildLoopWindow: CFAbsoluteTime = 10
 
+    /// Debounced-teardown timer: when gain lands on exactly unity (1.0),
+    /// unmuted, with no redirect - the "no tap needed" state - the tap is
+    /// deliberately NOT torn down immediately. It's kept alive at gain 1.0
+    /// (a unity-gain tap passes audio through unmodified; costs a little
+    /// CPU, audibly nothing) and this timer is scheduled to actually tear
+    /// it down after `unityTeardownDebounce` seconds of staying there. If
+    /// gain moves off unity again before it fires, `applyGain()` cancels it
+    /// and the tap just keeps running at the new gain - no teardown, no
+    /// rebuild. Exists because a live slider drag oscillating across the
+    /// ±4% "snap to 100%" zone (`snappingGain` in SoriApp.swift) used to
+    /// tear the tap down and immediately rebuild it on every single
+    /// crossing - confirmed live at ~25/sec during a simulated fast
+    /// back-and-forth drag, every single one starting from a cold tap
+    /// (`hadRunningTap=false`), which is what produced the reported popping
+    /// and "audio stops entirely" - the tap essentially never survived long
+    /// enough to pass coherent audio. `performDebouncedTeardown` re-checks
+    /// `needsTap` at fire time (not just at schedule time), so even a path
+    /// that doesn't explicitly cancel this timer (redirect changes, system
+    /// default output changes) can't tear down a tap that's needed again by
+    /// the time the debounce elapses.
+    @ObservationIgnored
+    private var unityTeardownTimer: Timer?
+    private static let unityTeardownDebounce: TimeInterval = 1.5
+
     /// Permanently true for the rest of this session once the user has
     /// touched this app's slider or mute button at all - regardless of
     /// whether the resulting value is back at default. A *time-limited*
@@ -190,6 +214,40 @@ final class AppVolumeController {
         rebuildTap(gain: effectiveGain, reason: reason)
     }
 
+    /// Called when the system's *default* OUTPUT device itself changes
+    /// (`kAudioHardwarePropertyDefaultSystemOutputDevice`, trap #17 - NOT
+    /// `kAudioHardwarePropertyDefaultOutputDevice`) - distinct from
+    /// `refreshTapForRedirectChange()`, which reacts to the AVAILABLE
+    /// DEVICE LIST changing (hot-plug) and only ever moves a tap that has
+    /// an explicit redirect target. An app with NO redirect
+    /// (`redirectDeviceUID == nil`) has its aggregate's output baked in at
+    /// CREATION time to whatever the system default was then
+    /// (`ProcessAudioTapEngine.createAggregateDevice` falls back to
+    /// `kAudioHardwarePropertyDefaultSystemOutputDevice` when
+    /// `outputDeviceOverride` is nil) - it never re-reads that default on
+    /// its own, so without this, a tapped app keeps rendering to the OLD
+    /// device forever after the user switches outputs mid-session, while
+    /// every untapped app correctly follows the new default for free (real
+    /// Core Audio routing, no Sori involvement needed).
+    ///
+    /// Deliberately a no-op for any app WITH an explicit redirect - staying
+    /// on the chosen device regardless of what the system default does is
+    /// the entire point of a redirect. Also a no-op with no live tap
+    /// (`tapEngine == nil`): an app at gain 1.0/unmuted/no-redirect has
+    /// nothing baked in to be stale.
+    func refreshTapForSystemDefaultOutputChange() {
+        guard redirectDeviceUID == nil else {
+            SoriDebugLog.log("[\(bundleIdentifier)] refreshTapForSystemDefaultOutputChange: has explicit redirect (\(redirectDeviceUID ?? "?")) - not moving")
+            return
+        }
+        guard tapEngine != nil else {
+            SoriDebugLog.log("[\(bundleIdentifier)] refreshTapForSystemDefaultOutputChange: no live tap - nothing to rebuild")
+            return
+        }
+        SoriDebugLog.log("[\(bundleIdentifier)] refreshTapForSystemDefaultOutputChange: system default output changed, rebuilding (no redirect, pids=\(pids.sorted()))")
+        rebuildTap(gain: effectiveGain, reason: "system default output device changed")
+    }
+
     /// Called every monitor refresh with this app's current set of
     /// audio-producing PIDs. If a tap is already active (or should become
     /// active) and the PID set changed - a tab/helper opened or closed -
@@ -218,14 +276,64 @@ final class AppVolumeController {
         let target = effectiveGain
         SoriDebugLog.log("[\(bundleIdentifier)] applyGain: target=\(target) effectiveRedirectDeviceID=\(effectiveRedirectDeviceID.map(String.init) ?? "nil") hasLiveTap=\(tapEngine != nil)")
         if target == 1.0 && effectiveRedirectDeviceID == nil {
-            teardownTap()
+            if let tapEngine {
+                // Don't tear down immediately - keep passing audio through
+                // at unity gain and only actually destroy the tap if this
+                // holds for `unityTeardownDebounce` seconds. See
+                // `unityTeardownTimer`'s doc comment for why.
+                tapEngine.gain = target
+                scheduleUnityTeardownIfNeeded()
+            }
+            // else: no live tap and none needed - already correctly absent.
         } else if let tapEngine {
             // Gain alone can be updated on a live tap - only the output
             // device is fixed at creation time and needs a full rebuild.
+            cancelPendingUnityTeardown()
             tapEngine.gain = target
         } else {
+            cancelPendingUnityTeardown()
             rebuildTap(gain: target, reason: "gain/mute changed")
         }
+    }
+
+    /// Schedules (or re-schedules) the debounced teardown - see
+    /// `unityTeardownTimer`'s doc comment. Not `RunLoop.main.add(_:forMode:)`
+    /// via `Timer.scheduledTimer`, since that only fires in the `.default`
+    /// run loop mode - `.common` keeps it firing even while a menu (the
+    /// redirect picker, the gear menu) is open, same reasoning as
+    /// `AudioProcessMonitor`'s poll timer.
+    private func scheduleUnityTeardownIfNeeded() {
+        guard !needsTap, tapEngine != nil else { return }
+        unityTeardownTimer?.invalidate()
+        let t = Timer(timeInterval: Self.unityTeardownDebounce, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.performDebouncedTeardown() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        unityTeardownTimer = t
+        SoriDebugLog.log("[\(bundleIdentifier)] scheduleUnityTeardownIfNeeded: tap kept alive at unity gain, teardown in \(Self.unityTeardownDebounce)s unless gain moves again")
+    }
+
+    /// Called whenever gain moves off unity (or a redirect/mute makes a tap
+    /// needed again) - cancels a pending debounced teardown so the tap just
+    /// keeps running. Not strictly required for correctness on every path
+    /// (`performDebouncedTeardown` re-checks `needsTap` at fire time
+    /// regardless), but avoids a stray timer firing uselessly later on the
+    /// most common path (the user moving the slider again).
+    private func cancelPendingUnityTeardown() {
+        guard unityTeardownTimer != nil else { return }
+        unityTeardownTimer?.invalidate()
+        unityTeardownTimer = nil
+        SoriDebugLog.log("[\(bundleIdentifier)] cancelPendingUnityTeardown: gain moved again before debounce fired")
+    }
+
+    private func performDebouncedTeardown() {
+        unityTeardownTimer = nil
+        guard !needsTap else {
+            SoriDebugLog.log("[\(bundleIdentifier)] performDebouncedTeardown: needsTap became true again - skip")
+            return
+        }
+        SoriDebugLog.log("[\(bundleIdentifier)] performDebouncedTeardown: still at unity/no redirect after \(Self.unityTeardownDebounce)s - tearing down")
+        teardownTap()
     }
 
     /// Resets the rebuild-loop guard - called on every explicit user
@@ -291,6 +399,13 @@ final class AppVolumeController {
     }
 
     private func teardownTap() {
+        // Defensive cleanup regardless of entry path (the rebuild-loop
+        // guard and `refreshTapForRedirectChange` can both reach this
+        // directly, not just the debounce firing itself) - a stale pending
+        // timer left after some OTHER teardown path would otherwise fire
+        // later and attempt a redundant (harmless, but sloppy) re-teardown.
+        unityTeardownTimer?.invalidate()
+        unityTeardownTimer = nil
         guard tapEngine != nil else { return }
         SoriDebugLog.log("[\(bundleIdentifier)] teardownTap called")
         tapEngine?.stop()
@@ -330,6 +445,7 @@ final class AppVolumeController {
 
     private static func persistGain(_ value: Float, for bundleIdentifier: String) {
         UserDefaults.standard.set(value, forKey: gainDefaultsKey(for: bundleIdentifier))
+        cachedPinnedBundleIdentifiers = nil
     }
 
     private static func loadPersistedMuted(for bundleIdentifier: String) -> Bool {
@@ -338,6 +454,7 @@ final class AppVolumeController {
 
     private static func persistMuted(_ value: Bool, for bundleIdentifier: String) {
         UserDefaults.standard.set(value, forKey: mutedDefaultsKey(for: bundleIdentifier))
+        cachedPinnedBundleIdentifiers = nil
     }
 
     private static func loadPersistedRedirectDeviceUID(for bundleIdentifier: String) -> String? {
@@ -360,13 +477,29 @@ final class AppVolumeController {
             UserDefaults.standard.removeObject(forKey: uidKey)
             UserDefaults.standard.removeObject(forKey: nameKey)
         }
+        cachedPinnedBundleIdentifiers = nil
     }
+
+    /// Cache for `pinnedBundleIdentifiers()`, called from
+    /// `AudioProcessMonitor.refresh()` on every poll tick (4x/sec at the
+    /// current 250ms interval). The underlying persisted state only actually
+    /// changes on an explicit user interaction (slider/mute/redirect), so
+    /// recomputing it by merging every key in
+    /// `UserDefaults.standard.dictionaryRepresentation()` (hundreds of keys,
+    /// almost all unrelated to Sori) on every tick was pure waste.
+    /// Invalidated by `persistGain`/`persistMuted`/`persistRedirectDevice` -
+    /// the only three places the underlying keys change.
+    private static var cachedPinnedBundleIdentifiers: Set<String>?
 
     /// Bundle identifiers with a persisted, non-default setting (gain != 1.0,
     /// muted, or a redirect target set) - used by `AudioProcessMonitor` to
     /// keep an app "pinned" in the list even while it's not currently
     /// producing audio.
     static func pinnedBundleIdentifiers() -> Set<String> {
+        if let cachedPinnedBundleIdentifiers {
+            return cachedPinnedBundleIdentifiers
+        }
+
         var result = Set<String>()
 
         for (key, value) in UserDefaults.standard.dictionaryRepresentation() {
@@ -385,6 +518,7 @@ final class AppVolumeController {
             }
         }
 
+        cachedPinnedBundleIdentifiers = result
         return result
     }
 }

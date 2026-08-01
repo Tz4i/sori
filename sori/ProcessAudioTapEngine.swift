@@ -44,18 +44,55 @@ final class ProcessAudioTapEngine {
     /// device rather than whatever the system default happens to be.
     private let outputDeviceOverride: AudioObjectID?
 
-    // Read on the realtime IO thread, written from wherever the caller lives.
-    // Float load/store is atomic on every architecture this ships on, so a
-    // plain var is safe: a torn read would at worst use a one-callback-stale
-    // gain value, never a corrupted one. Do NOT add a lock here - Core Audio's
-    // IO thread must never block on a mutex.
-    private var _gain: Float
+    /// Mutable state the realtime IOProc block actually touches, isolated
+    /// into its own small object so the block never has to capture `self`
+    /// (the engine) at all - not `weak self` (every weak load takes the
+    /// Swift runtime's global side-table lock, forbidden on this thread),
+    /// and deliberately not `unowned(unsafe) self` either: that would rely
+    /// on `AudioDeviceStop` having fully drained the IO thread before
+    /// `teardown()` can proceed to free the engine, and Apple's own guidance
+    /// on the closely related AudioUnit render callback explicitly warns it
+    /// "can continue to execute for a short period" after the stop call
+    /// returns - exactly the kind of race an unsafe-unowned capture can't
+    /// tolerate. Instead, the IOProc block captures `ioState` STRONGLY, and
+    /// the engine also holds its own strong reference for the engine's whole
+    /// lifetime - so `ioState` can't be deallocated while either the engine
+    /// or the still-registered block exists, regardless of exactly when the
+    /// last callback fires relative to teardown. See `startIO()`.
+    private final class TapIOState {
+        // Read on the realtime IO thread, written from wherever the caller
+        // lives. Float/Bool load-store is atomic on every architecture this
+        // ships on, so plain vars are safe: a torn read would at worst use a
+        // one-callback-stale value, never a corrupted one. Do NOT add a lock
+        // here - Core Audio's IO thread must never block on a mutex.
+        var gain: Float
+        /// The gain actually applied as of the end of the previous callback
+        /// - the ramp's starting point for the next one. Exclusively
+        /// audio-thread-owned (only `process()` reads or writes it - the
+        /// external `gain` setter never touches it), so unlike `gain` this
+        /// isn't even cross-thread state. Starts equal to the initial
+        /// `gain` so the very first callback of a freshly-started tap
+        /// applies flat, not ramped in from an arbitrary default - there's
+        /// no real "previous" audio to ramp from yet.
+        var previousGain: Float
+        var limiterEngaged = false
 
-    // Same atomicity reasoning as `_gain`. Set by the IO thread, read from
-    // wherever the caller wants to know if the limiter is active; a torn read
-    // just means a one-callback-stale answer.
-    private(set) var limiterEngaged: Bool = false
-    private var limiterLogCallbackCount = 0
+        init(gain: Float) {
+            self.gain = gain
+            self.previousGain = gain
+        }
+    }
+
+    private let ioState: TapIOState
+
+    /// Polls `limiterEngaged`/`gain` roughly once a second and logs from the
+    /// main thread while boosted - `os_log` can allocate and take locks, so
+    /// it must never be called from `process()` on the realtime IO thread
+    /// (previously throttled to ~1/100 callbacks there, which only lowered
+    /// the probability of a glitch rather than eliminating it). This timer
+    /// is the off-thread replacement for that same "Limiter ENGAGED/not
+    /// engaged" visibility.
+    private var limiterLogTimer: Timer?
 
     private var tapDescription: CATapDescription?
     private var processTapID: AudioObjectID = .unknown
@@ -74,11 +111,6 @@ final class ProcessAudioTapEngine {
 
     private let ioQueue = DispatchQueue(label: "com.sebastianzapata.sori.tap-io", qos: .userInteractive)
 
-    /// Optional diagnostics hook: called on the realtime IO thread with the
-    /// RMS of each incoming (pre-gain) buffer. Same atomicity note as `gain`
-    /// applies to reading/writing this from outside.
-    var rmsHandler: ((Float) -> Void)?
-
     /// - Parameters:
     ///   - target: which processes to tap - see `TapTarget`.
     ///   - gain: initial gain factor, clamped to 0.0...2.0.
@@ -86,16 +118,20 @@ final class ProcessAudioTapEngine {
     ///     default-system-output-device fallback. See `outputDeviceOverride`.
     init(target: TapTarget, gain: Float = 1.0, outputDevice: AudioObjectID? = nil) {
         self.target = target
-        self._gain = Self.clampGain(gain)
+        self.ioState = TapIOState(gain: Self.clampGain(gain))
         self.outputDeviceOverride = outputDevice
     }
 
     deinit { teardown() }
 
     var gain: Float {
-        get { _gain }
-        set { _gain = Self.clampGain(newValue) }
+        get { ioState.gain }
+        set { ioState.gain = Self.clampGain(newValue) }
     }
+
+    /// Read-only from outside - written only by `process()` on the IO
+    /// thread, via `ioState`.
+    var limiterEngaged: Bool { ioState.limiterEngaged }
 
     private static func clampGain(_ value: Float) -> Float {
         min(max(value, 0.0), 2.0)
@@ -114,6 +150,7 @@ final class ProcessAudioTapEngine {
             try prepare()
             try startIO()
             isRunning = true
+            startLimiterLogging()
             SoriDebugLog.log("[\(instanceTag)] start() complete: tap=#\(processTapID) aggregate=#\(aggregateDeviceID)")
         } catch {
             SoriDebugLog.log("[\(instanceTag)] start() FAILED: \(error) - tearing down")
@@ -142,6 +179,7 @@ final class ProcessAudioTapEngine {
     }
 
     private func teardown() {
+        stopLimiterLogging()
         SoriDebugLog.log("[\(instanceTag)] teardown() begin: tap=#\(processTapID) aggregate=#\(aggregateDeviceID)")
 
         if aggregateDeviceID.isValid, let deviceProcID {
@@ -311,8 +349,14 @@ final class ProcessAudioTapEngine {
         guard let tapFormat else { throw TapEngineError.missingTapFormat }
 
         var procID: AudioDeviceIOProcID?
-        let ioBlock: AudioDeviceIOBlock = { [weak self] _, inInputData, _, outOutputData, _ in
-            self?.process(inputData: inInputData, outputData: outOutputData, format: tapFormat)
+        // Deliberately captures `ioState` (a plain local `let`, strongly
+        // captured) and `tapFormat` only - never `self`. See `TapIOState`'s
+        // doc comment for why. `Self.process` is a static function taking
+        // both explicitly, so there's no implicit `self` capture hiding in
+        // the closure either.
+        let state = ioState
+        let ioBlock: AudioDeviceIOBlock = { _, inInputData, _, outOutputData, _ in
+            Self.process(inputData: inInputData, outputData: outOutputData, format: tapFormat, state: state)
         }
 
         let createErr = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateDeviceID, ioQueue, ioBlock)
@@ -331,60 +375,124 @@ final class ProcessAudioTapEngine {
         SoriDebugLog.log("[\(instanceTag)] AudioDeviceStart -> ok on aggregate #\(aggregateDeviceID)")
     }
 
-    /// Runs on the realtime IO thread. Multiplies every sample in the tapped
-    /// input by the current gain and writes the result into the output
-    /// buffer list that gets forwarded to the real output device.
-    private func process(inputData: UnsafePointer<AudioBufferList>, outputData: UnsafeMutablePointer<AudioBufferList>, format: AVAudioFormat) {
+    // MARK: - Off-thread limiter logging
+
+    /// Scheduled on the main run loop, never the IO thread - see
+    /// `limiterLogTimer`'s doc comment.
+    private func startLimiterLogging() {
+        let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.logLimiterStateIfNeeded()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        limiterLogTimer = t
+    }
+
+    private func stopLimiterLogging() {
+        limiterLogTimer?.invalidate()
+        limiterLogTimer = nil
+    }
+
+    private func logLimiterStateIfNeeded() {
+        let currentGain = gain
+        guard currentGain > 1.0 else { return }
+        logger.notice("Limiter \(self.limiterEngaged ? "ENGAGED" : "not engaged", privacy: .public) at gain \(currentGain, privacy: .public)")
+    }
+
+    /// Runs on the realtime IO thread. No reference to the owning engine
+    /// (`self`) at all - see `TapIOState`'s doc comment for why. Ramps from
+    /// the gain applied at the end of the previous callback
+    /// (`state.previousGain`) to the current target (`state.gain`) linearly
+    /// across each buffer's samples, instead of jumping to the target
+    /// instantaneously - an unramped per-buffer gain change is classic
+    /// zipper noise on any fast change (a slider drag, a mute toggle).
+    /// Writes the result into the output buffer list that gets forwarded to
+    /// the real output device.
+    private static func process(inputData: UnsafePointer<AudioBufferList>, outputData: UnsafeMutablePointer<AudioBufferList>, format: AVAudioFormat, state: TapIOState) {
         let inputBufferList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
         let outputBufferList = UnsafeMutableAudioBufferListPointer(outputData)
 
-        if let rmsHandler {
-            rmsHandler(Self.rms(of: inputBufferList))
-        }
-
-        let currentGain = _gain
-        // Only boost (gain > 1.0) can push samples outside [-1, 1]; below or
-        // at unity, multiplying can only shrink amplitude, so there's nothing
-        // to limit and we skip the extra per-sample work entirely.
-        let limiterActive = currentGain > 1.0
+        // Captured ONCE here, not per-buffer/channel - every channel in this
+        // callback ramps across the identical start->target pair, so a
+        // stereo pair stays in sync, and `previousGain` only advances once,
+        // at the very end, after every buffer has been processed with it.
+        let startGain = state.previousGain
+        let targetGain = state.gain
+        // Only boost (gain > 1.0, at either end of the ramp) can push
+        // samples outside [-1, 1]; below or at unity throughout, multiplying
+        // can only shrink amplitude, so there's nothing to limit and we skip
+        // the extra per-sample work entirely.
+        let limiterActive = max(startGain, targetGain) > 1.0
         var engagedThisCallback = false
 
-        for (index, inputBuffer) in inputBufferList.enumerated() {
-            guard index < outputBufferList.count,
-                  let inputRaw = inputBuffer.mData,
-                  let outputRaw = outputBufferList[index].mData else { continue }
+        // Iterate the OUTPUT buffer list, not the input one - Core Audio does
+        // not promise output buffers arrive zeroed, and any byte this
+        // callback doesn't explicitly write renders whatever stale memory
+        // was already there. The previous version iterated `inputBufferList`,
+        // which silently skipped (left un-zeroed) any output buffer past the
+        // input buffer count, any buffer with a nil `mData`, and any trailing
+        // bytes in an output buffer larger than the matching input buffer.
+        for (index, outputBuffer) in outputBufferList.enumerated() {
+            guard let outputRaw = outputBuffer.mData else { continue }
+            let outputByteSize = Int(outputBuffer.mDataByteSize)
 
-            let sampleCount = min(Int(inputBuffer.mDataByteSize), Int(outputBufferList[index].mDataByteSize)) / MemoryLayout<Float32>.size
-            guard sampleCount > 0 else { continue }
+            guard index < inputBufferList.count,
+                  let inputRaw = inputBufferList[index].mData else {
+                memset(outputRaw, 0, outputByteSize)
+                continue
+            }
+
+            let sampleCount = min(Int(inputBufferList[index].mDataByteSize), outputByteSize) / MemoryLayout<Float32>.size
+            guard sampleCount > 0 else {
+                memset(outputRaw, 0, outputByteSize)
+                continue
+            }
 
             let input = inputRaw.assumingMemoryBound(to: Float32.self)
             let output = outputRaw.assumingMemoryBound(to: Float32.self)
 
+            // Linear ramp from startGain to targetGain across this buffer's
+            // own sample count - computed per buffer (not hoisted out of the
+            // loop) so a channel with a different frame count this callback
+            // (shouldn't normally happen for a synced stereo tap, but not
+            // assumed) still ramps correctly against its own length.
+            let gainStep = (targetGain - startGain) / Float(sampleCount)
             if limiterActive {
                 for sample in 0..<sampleCount {
-                    let boosted = input[sample] * currentGain
+                    let rampedGain = startGain + gainStep * Float(sample)
+                    let boosted = input[sample] * rampedGain
                     let limited = Self.softClip(boosted)
                     if limited != boosted { engagedThisCallback = true }
                     output[sample] = limited
                 }
             } else {
                 for sample in 0..<sampleCount {
-                    output[sample] = input[sample] * currentGain
+                    let rampedGain = startGain + gainStep * Float(sample)
+                    output[sample] = input[sample] * rampedGain
                 }
+            }
+
+            let writtenByteSize = sampleCount * MemoryLayout<Float32>.size
+            if writtenByteSize < outputByteSize {
+                memset(outputRaw.advanced(by: writtenByteSize), 0, outputByteSize - writtenByteSize)
             }
         }
 
+        // Advance the ramp baseline for the NEXT callback, once, after every
+        // buffer/channel this callback has been processed against the same
+        // start/target pair - not `targetGain` re-read per buffer, and not
+        // wherever the ramp mathematically landed on the last sample (one
+        // step short of `targetGain` by construction), so a steady gain
+        // (no further change) starts the next callback flat, not still
+        // "chasing" a target it's already effectively reached.
+        state.previousGain = targetGain
+
         if limiterActive {
-            limiterEngaged = engagedThisCallback
-            // Throttled to ~once/second instead of every callback (~100/sec)
-            // so this stays cheap on the realtime IO thread while still
-            // giving visibility into whether boost is actually hitting the
-            // limiter, per the requirement to log this.
-            limiterLogCallbackCount += 1
-            if limiterLogCallbackCount >= 100 {
-                limiterLogCallbackCount = 0
-                logger.notice("Limiter \(engagedThisCallback ? "ENGAGED" : "not engaged", privacy: .public) at gain \(currentGain, privacy: .public)")
-            }
+            // Plain bool write, no logging/allocation here - `os_log` can
+            // allocate and take locks, which is why the "Limiter
+            // ENGAGED/not engaged" logging itself moved to
+            // `logLimiterStateIfNeeded()`, polled from a main-thread timer
+            // instead of called from this realtime IO thread.
+            state.limiterEngaged = engagedThisCallback
         }
     }
 
@@ -404,25 +512,5 @@ final class ProcessAudioTapEngine {
         let excess = absX - softKneeThreshold
         let compressed = softKneeThreshold + range * Float(tanh(Double(excess / range)))
         return sign * compressed
-    }
-
-    private static func rms(of bufferList: UnsafeMutableAudioBufferListPointer) -> Float {
-        var sumOfSquares: Float = 0
-        var totalSamples = 0
-
-        for buffer in bufferList {
-            guard let mData = buffer.mData else { continue }
-            let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size
-            guard sampleCount > 0 else { continue }
-
-            let samples = mData.assumingMemoryBound(to: Float32.self)
-            for i in 0..<sampleCount {
-                sumOfSquares += samples[i] * samples[i]
-            }
-            totalSamples += sampleCount
-        }
-
-        guard totalSamples > 0 else { return 0 }
-        return (sumOfSquares / Float(totalSamples)).squareRoot()
     }
 }

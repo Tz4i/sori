@@ -342,10 +342,14 @@ final class SystemAlertVolumeController {
 
     init(pollInterval: TimeInterval = 1.0) {
         self.sliderGain = Float(Self.readAlertVolumePercent() ?? 100) / 100.0
-        pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
+        let newTimer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in self.pollForExternalChange() }
         }
+        // Same NSEventTrackingRunLoopMode gotcha as AudioProcessMonitor's
+        // poll timer - `.common` keeps this firing while a menu is open.
+        RunLoop.main.add(newTimer, forMode: .common)
+        pollTimer = newTimer
     }
 
     deinit {

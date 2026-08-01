@@ -25,9 +25,6 @@ Bundle ID: `com.sebastianzapata.sori`. Deployment target: macOS 14.4.
   output/input device volume (`SystemDeviceVolumeController`) and the
   AppleScript-backed alert/sound-effects volume (`SystemAlertVolumeController`).
 - `sori/CoreAudioTapSupport.swift` — shared `AudioObjectID` property-read/write helpers.
-- `sori/TapEngineDiagnosticTest.swift` — temporary env-var-gated diagnostic
-  (`SORI_RUN_TAP_TEST=1`), safe to delete once the engine has a real caller
-  beyond volume control (kept for now as a quick sanity check).
 - `sori/LaunchAtLoginController.swift` — "Launch 소리 at Login" toggle backed
   by `SMAppService.mainApp` (macOS 13+), surfaced in `SoriApp.swift`'s gear
   settings menu.
@@ -70,12 +67,25 @@ only the freshly-built instance is running.
 unreliable for this app's own subsystem in this environment (sometimes worked,
 often silently returned nothing even moments after events were confirmed to
 have happened via other means). All the diagnostic env vars below write
-directly to stderr instead, which was reliable every time:
+directly to stderr instead, which was reliable every time.
+
+**Possible confound found later, not yet reconciled with the above:** in a
+later session, plain `log stream --predicate '...'` from an interactive shell
+silently did nothing (`(eval):log:1: too many arguments`) - because `log` is
+a **zsh shell builtin** on this machine (`type log` → "shell builtin"), which
+intercepts the bare `log` command instead of running the actual CLI tool.
+Explicitly invoking `/usr/bin/log stream ...` worked cleanly and reliably
+every time it was tried after that (confirmed live, captured real-time
+`Logger.notice` output from a running tap engine). Whether this shadowing
+explains every prior "OSLog is unreliable here" observation above is
+unconfirmed - those were from a different context (this app's own launched
+process, not necessarily this exact interactive-shell invocation path) - but
+it's a strong enough confound that a future session doubting OSLog again
+should try `/usr/bin/log` explicitly before concluding it's the tool that's
+unreliable rather than the shell.
 
 - `SORI_CHECK_TCC=1` — construct `AudioRecordingPermission`, print its status, exit.
 - `SORI_REQUEST_TCC=1` — trigger the real TCC consent request.
-- `SORI_RUN_TAP_TEST=1` (+ `SORI_RUN_TAP_TEST_EXIT=1`) — run the temporary
-  tap-engine RMS diagnostic (see `TapEngineDiagnosticTest.swift`).
 - `SORI_DEBUG_PROCESS_MONITOR=1` — dump the resolved app→PID groups and the
   pinning-decision internals (`everActive`/`interacted`/`pinned`/`currentlyLive`
   sets) on every change.
@@ -350,7 +360,239 @@ turn. Don't re-litigate them without re-testing first.
       whole app, up from ~1.3% at a 1s interval. Re-test this finding rather
       than assuming it if a future macOS release is the trigger for
       revisiting it - undocumented behavior like this is exactly the kind
-      that changes across OS versions without notice.
+      that changes across OS versions without notice. **The ~4.4% figure is
+      now superseded** - it was measured before trap #21's per-tick caching
+      fix; idle CPU at this same 250ms interval is ~1.85% now (see trap #21
+      and PROGRESS.md). The interval itself and the polling-vs-event-driven
+      reasoning above are unaffected - #21 fixed per-tick cost, not
+      frequency.
+
+21. **`AudioProcessMonitor`'s per-pid app-resolution cache
+    (`cachedRunningApps...`, `groupKeyCache`, `unresolvablePIDs`) must NOT be
+    rebuilt on every poll tick, or the CPU win here reverts.** Profiled live:
+    re-snapshotting `NSWorkspace.shared.runningApplications` and rebuilding
+    `runningAppsByPID`/`runningAppsByName` from it every 250ms tick was
+    ~16-24ms of a ~31-39ms tick - by far the dominant per-tick cost, an order
+    of magnitude past everything else in `refresh()` combined (confirmed via
+    a controlled A/B under an identical frozen app set: caching the pid
+    resolution chain alone, without also fixing this, made no measurable
+    difference - 5.38% either way). Fixed by caching the snapshot and its two
+    lookup dictionaries as instance state, invalidated ONLY by
+    `NSWorkspace.didLaunchApplicationNotification`/
+    `didTerminateApplicationNotification` (the only two notifications that
+    can actually change a pid's owning app - hide/unhide, activate/deactivate,
+    etc. don't and aren't observed) via a dirty flag, consumed lazily at the
+    top of the next `refresh()` tick rather than rebuilt synchronously inside
+    the notification handler - so a burst of several launches/terminations
+    between two polls still costs exactly one rebuild, not one per
+    notification. Three things about this design a future "simplify this"
+    pass needs to preserve:
+    - **Negative caching (`unresolvablePIDs`)** - a pid that never resolves
+      to a genuine app (a background daemon that happens to keep producing
+      audio) must not retry the resolution chain, or trigger the fallback
+      rebuild below, every single tick for as long as it keeps running - it's
+      cached as unresolvable and skipped outright, evicted only when the pid
+      itself disappears (same eviction timing as the positive
+      `groupKeyCache`).
+    - **The launch-notification-vs-poll-tick race** - a pid can start
+      producing audio (visible to Core Audio) before `NSWorkspace`'s launch
+      notification has been delivered/processed, or before this tick's lazy
+      dirty-flag consumption has run. If resolution fails against the
+      current cache, `refresh()` forces exactly one full re-snapshot as a
+      fallback and retries - bounded to at most once per tick
+      (`didFallbackRefreshThisTick`) regardless of how many pids fail in that
+      tick, specifically so this fallback path can't itself regress into
+      "re-snapshot every tick."
+    - **This did not break "an already-known app starts playing" detection**,
+      which is the entire reason for polling at 250ms in the first place -
+      that detection is completely independent of this cache
+      (`kAudioProcessPropertyIsRunningOutput` is still read fresh every tick
+      for every live pid, per trap #20 above). Confirmed live via a real
+      `afplay` test: 229ms from process launch to `updatePIDs` picking it up,
+      25ms from playback ending to the pid being dropped - both within one
+      poll tick, unchanged from before this cache existed.
+
+    Net effect, measured under an identical frozen app set before/after:
+    idle CPU dropped from 5.38% to 1.85% at the same 250ms poll interval -
+    the fix was per-tick cost, not polling frequency. An "adaptive polling"
+    idea (poll fast only while something's active, back off otherwise) was
+    on the table in PROGRESS.md's Known Gaps before this fix; it would have
+    been the wrong lever entirely and is now removed from there.
+
+22. **`ProcessAudioTapEngine.process()` (the realtime IOProc callback) must
+    never allocate, lock, take a weak reference, or log - a future addition
+    to this function needs to keep it that way.** Three violations were
+    found and fixed in the same session:
+    - **`rmsHandler`, a mutable closure property read every callback, was
+      removed entirely** rather than fixed - `_gain`/`limiterEngaged` are
+      plain `Float`/`Bool`, where a torn read is harmless (at worst a
+      one-callback-stale value), but a closure is a refcounted reference -
+      a torn read of one is a real use-after-free/corruption risk, not just
+      a stale value. Its only caller was `TapEngineDiagnosticTest.swift`
+      (a temporary, env-var-gated, `SORI_RUN_TAP_TEST=1` diagnostic that
+      predated the engine having a real caller), deleted in the same
+      session now that per-app volume control is the real, permanent
+      caller and the diagnostic had no remaining purpose.
+    - **`logger.notice(...)` was called directly from `process()`**,
+      throttled to ~1-in-100 callbacks to approximate "once a second."
+      `os_log` can allocate and take locks - throttling lowers the
+      *probability* of a glitch, it doesn't make the call realtime-safe.
+      Fixed by removing all logging from `process()` and adding a
+      `Timer(timeInterval: 1.0, ...)` scheduled on `RunLoop.main` (`.common`
+      mode) inside `ProcessAudioTapEngine` itself, started in `start()` and
+      invalidated in `teardown()`, which reads `limiterEngaged`/`gain` and
+      logs from the main thread instead. Confirmed live: boosted a real
+      per-app tap to gain 1.8 (`afplay` piped through Terminal's
+      parent-chain-resolved pid) and streamed `/usr/bin/log stream`
+      (see the debug-logging note above for why `/usr/bin/log`, not bare
+      `log`) filtered to this subsystem/category - "Limiter not engaged at
+      gain 1.800000" appeared at a clean, consistent ~1s cadence, always
+      from the exact same `PID:TID`, confirming both that it fires
+      reliably and that it's coming from one fixed (main) thread, not the
+      per-callback IO thread.
+    - **The IOProc block captured `[weak self]`, and called `self?.process(...)`
+      every callback.** Every weak load takes the Swift runtime's global
+      side-table lock - forbidden here regardless of how cheap it seems.
+      The natural-looking fix, `[unowned(unsafe) self]`, was considered and
+      **rejected**: it would depend on `AudioDeviceStop` (called first in
+      `teardown()`) having fully drained the IO thread before `self` can be
+      freed, and while that dependency is *probably* fine in practice (this
+      project's teardown ordering already depends on `AudioDeviceStop`
+      being synchronous - see trap #5), a web search surfaced an Apple DTS
+      engineer's own caveat on the closely-related AudioUnit render
+      callback: it "can continue to execute for a short period" after the
+      stop call returns. That's exactly the race `unowned(unsafe)` cannot
+      tolerate, and the risk (a realtime-thread use-after-free, this
+      whole batch of fixes' entire reason for existing) was judged not
+      worth taking just to avoid one extra allocation. Fixed instead by
+      hoisting the two fields the callback actually touches (`gain`,
+      `limiterEngaged`) into a private nested `TapIOState` class that the
+      IOProc block captures **strongly** and the engine ALSO holds a
+      strong reference to for its own whole lifetime - so `ioState` can't
+      be deallocated while either the engine or the still-registered block
+      exists, regardless of exactly when the last callback fires relative
+      to teardown, sidestepping the timing question entirely rather than
+      betting on it. `process()` became a `private static func` taking
+      `state: TapIOState` explicitly, so the closure has no implicit
+      capture of `self` hiding in it either. `gain`/`limiterEngaged` on the
+      engine are now computed properties that forward to `ioState` - same
+      external API, no functional change for any caller.
+
+23. **A crashed/killed process's PRIVATE aggregate device does not appear to
+    leak past its death on this machine's current macOS build - confirmed
+    live, and this contradicts what an earlier session believed based on
+    real field crash history.** `OrphanedAggregateSweeper.sweepAtLaunch()`
+    exists to enumerate and destroy any `Sori-Tap-`-named aggregate left
+    behind by a previous crashed launch, on the theory (stated as an
+    observed fact from real crashes) that "every crash leaves an orphaned
+    aggregate device that nothing ever reaps." Tested four ways before
+    trusting that theory at face value:
+    1. A separate throwaway process created a private `Sori-Tap-`-prefixed
+       aggregate and exited WITHOUT destroying it (simulating a leak) - a
+       fresh real Sori launch's sweep found and destroyed **0** orphans.
+    2. A third, completely separate enumeration process couldn't see that
+       same aggregate via `kAudioHardwarePropertyDevices` even while its
+       creator was still alive - consistent with trap #19 (private
+       aggregates are only visible to their own creating process), but this
+       extends it further: visibility doesn't transfer to a LATER launch of
+       the same app either, only to the literal same process.
+    3. Reusing the exact same UID as the abandoned aggregate from (1)
+       succeeded cleanly with no `kAudioHardwareIllegalOperationError` -
+       no evidence of a lingering internal conflict either.
+    4. The closest-to-real-crash test: created an aggregate, actually
+       started IO on it (`AudioDeviceCreateIOProcIDWithBlock` +
+       `AudioDeviceStart`, matching what a real tap does), then `kill -9`'d
+       the process while it was actively running - still **0** orphans found
+       by a subsequent real Sori launch's sweep, and still invisible to a
+       third-party enumeration process afterward.
+
+    Net conclusion from this machine's current OS build: coreaudiod appears
+    to clean up a private aggregate device's registration when its creating
+    process's connection dies, crash or not - so the sweep, as built,
+    correctly reports 0 in every test thrown at it here, and there was
+    nothing to demonstrate it destroying for real. **The code is being kept
+    anyway** - defense-in-depth against a different macOS version or
+    condition genuinely leaking (untested: crashing mid-`AudioHardwareCreateAggregateDevice`
+    itself, a real machine reboot instead of a plain process kill, older
+    deployment-target OS versions actually installed on end-user Macs vs.
+    this dev machine's beta SDK), and the swept-count log line is itself a
+    free, cheap diagnostic - if it's ever nonzero in real use, that's a
+    concrete, actionable signal, not a launch-time verification exercise.
+
+    **Follow-up: the process tap object was the next suspect, and it tests
+    the exact same way.** `AudioHardwareCreateProcessTap`/
+    `AudioHardwareDestroyProcessTap` is a genuinely separate Core Audio
+    object from the aggregate device (enumerable on its own via
+    `kAudioHardwarePropertyTapList`, `'tps#'` - undocumented in this file
+    until now), and `CATapDescription.isPrivate` is the exact same
+    "only visible to the client process that created it" contract as the
+    aggregate's private flag (Apple's own doc comment on the property, not
+    an inference). Repeated the same four-part test against taps instead of
+    aggregates: a throwaway process created a private tap and was `kill -9`'d
+    while it had a real IOProc actively running on it (closest analog to a
+    genuine crash) - a fresh enumeration process saw **0** taps via
+    `kAudioHardwarePropertyTapList` both before and after the kill, and
+    reusing the exact abandoned tap's UUID in a brand-new
+    `AudioHardwareCreateProcessTap` call succeeded cleanly with no
+    `kAudioHardwareIllegalOperationError`. Identical result to the
+    aggregate case, by the same mechanism (the `isPrivate` contract), not a
+    coincidence.
+
+    **So: neither Core Audio object Sori creates appears to leak past
+    process death on this OS build - the crash-recovery half of trap #5's
+    `createAggregateDevice` retry (tearing down a stale aggregate on
+    `kAudioHardwareIllegalOperationError`) has no confirmed mechanism to
+    ever fire from a previous process's leftovers.** The retry is not being
+    removed - `prepare()` always generates a fresh random UUID per call
+    (`aggregateUID = UUID().uuidString`), so it can't self-conflict either
+    (a genuine same-instance collision isn't reachable through this
+    codebase's own call graph: `start()` no-ops if already running, and
+    `rebuild()` always tears down fully before starting again) - but on the
+    evidence gathered here, this retry path is effectively unreached dead
+    code for BOTH the reason it was written (same-instance conflict - not
+    producible) AND the reason it was hoped to also cover (cross-process
+    leak recovery - no leak to recover from). If
+    `kAudioHardwareIllegalOperationError` conflicts are ever actually seen
+    in the field again, neither hypothesis tested here explains it, and the
+    cause is something not yet identified - not a leaked aggregate, not a
+    leaked tap, and not a same-instance double-create.
+
+24. **Per-app taps don't automatically follow the system default OUTPUT
+    device changing mid-session - `AudioProcessMonitor` now listens for
+    `kAudioHardwarePropertyDefaultSystemOutputDevice` (trap #17 - NOT
+    `kAudioHardwarePropertyDefaultOutputDevice`) and rebuilds the affected
+    taps.** `ProcessAudioTapEngine.createAggregateDevice` bakes the output
+    device into the aggregate at CREATION time and never re-reads it - so
+    switching outputs (e.g. AirPods -> speakers) left every gain-adjusted/
+    tapped app rendering to the OLD device forever, an audible split from
+    everything untapped (which correctly follows the new default via plain
+    Core Audio routing, no Sori involvement). Fixed with a single
+    process-wide listener in `AudioProcessMonitor` (not per-`AppVolumeController`
+    - avoids N redundant listeners) that, on fire, calls
+    `AppVolumeController.refreshTapForSystemDefaultOutputChange()` on every
+    controller. That method is a no-op for any app with an explicit redirect
+    (`redirectDeviceUID != nil` - staying on the chosen device regardless of
+    the system default is the entire point of a redirect) and for any app
+    with no live tap (nothing baked in to be stale) - only a tapped,
+    non-redirected app's aggregate actually rebuilds. This is deliberately a
+    DIFFERENT trigger from `refreshTapForRedirectChange()` (fired by
+    `AvailableAudioDevices`' device-LIST changing, i.e. hot-plug): the two
+    are mutually exclusive by construction (one only ever acts on redirected
+    apps, the other only ever acts on non-redirected apps), so a single
+    real-world event that happens to fire both listeners at once (e.g.
+    unplugging a device that was simultaneously someone's redirect target
+    AND the system default) can't double-rebuild the same controller.
+    Reuses `rebuildTap`'s existing rebuild-loop guard - a real default-output
+    switch is a one-time event, not a loop, and this path doesn't call
+    `resetRebuildLoopGuard()` (that's reserved for explicit user interaction
+    on the app in question, per its own doc comment - a system-wide default-
+    output change isn't that). **Not yet independently confirmed live** -
+    the listener registers without error at launch (confirmed), but
+    actually switching the system default output device to watch a tapped
+    app's audio follow was left to the user to verify by ear, since doing
+    that programmatically here would mean changing the real machine's live
+    audio routing out from under whatever the user might be doing at the
+    time.
 
 ## Login item & popover-chrome notes (not Core Audio, kept separate from the
 numbered list above on purpose - these are SwiftUI/AppKit/ServiceManagement
