@@ -445,6 +445,127 @@ independent of this cache: a live `afplay` test showed 229ms from process
 launch to detection, 25ms from playback ending to the pid being dropped -
 both within one poll tick, unchanged from before this cache existed.
 
+**Realtime-thread safety in the IOProc (2026-07-31)** — a follow-up review
+specifically targeted `ProcessAudioTapEngine.process()`, the Core Audio
+render callback, for allocation/locking/refcounting violations (any of
+which cause intermittent crashes/glitches on a realtime thread, not clean
+failures).
+- `rmsHandler` (a mutable closure property read every callback - a torn
+  read of a refcounted reference is a real corruption risk, unlike a plain
+  `Float`/`Bool`) removed entirely. Its only caller was
+  `TapEngineDiagnosticTest.swift`, a temporary `SORI_RUN_TAP_TEST=1`
+  diagnostic that predated the engine having a real caller - deleted in
+  the same pass now that per-app volume control is the permanent caller.
+- `logger.notice(...)` removed from `process()` (previously throttled to
+  ~1-in-100 callbacks to approximate "once a second" - `os_log` can
+  allocate and take locks, and throttling only lowers the *probability* of
+  a glitch, not eliminates it). Replaced with a 1Hz `Timer` inside
+  `ProcessAudioTapEngine` itself, scheduled on the main run loop, that
+  polls `limiterEngaged`/`gain` and logs from there instead. Confirmed
+  live via `/usr/bin/log stream` (see CLAUDE.md's debug-logging note - `log`
+  is a zsh builtin on this machine, shadowing the real CLI tool) at a
+  boosted gain: clean ~1s cadence, always the same `PID:TID`, confirming
+  both reliability and that it's off the per-callback IO thread.
+- The IOProc block's `[weak self]` capture (every weak load takes the
+  Swift runtime's global side-table lock) replaced - not with
+  `unowned(unsafe) self` as first considered (would depend on
+  `AudioDeviceStop` having fully drained the IO thread before `self` can
+  be freed; an Apple DTS engineer's own caveat on the closely related
+  AudioUnit render callback warns it "can continue to execute for a short
+  period" after the stop call returns, which is exactly the race an
+  unsafe-unowned capture can't tolerate) - but by hoisting `gain`/
+  `limiterEngaged` into a small `TapIOState` class the block captures
+  STRONGLY, with the engine also holding its own strong reference for its
+  whole lifetime, so the state can't be deallocated while either the
+  engine or the still-registered block exists, regardless of exact
+  teardown timing. `process()` became a `static func` taking `state`
+  explicitly - no implicit `self` capture hiding in the closure either.
+- Verified live with real, boosted (gain 1.8-2.0) audio through a real
+  per-app tap: multiple full create/rebuild/teardown cycles, zero errors,
+  zero crashes, teardown ordering intact.
+
+**Crash resilience & device-change handling (2026-07-31)**
+- `OrphanedAggregateSweeper.sweepAtLaunch()` added - at startup, before any
+  tap starts, enumerates devices and destroys any `Sori-Tap-`-prefixed
+  aggregate not tracked in `SoriOwnedAggregateDevices` (i.e. orphaned by a
+  previous crashed launch), on the theory that leaked aggregates were the
+  likely source of `kAudioHardwareIllegalOperationError` ('nope')
+  conflicts. Tested four ways (idle-created orphan, third-party
+  enumeration while creator alive, UID reuse, and the closest-to-real
+  case - an actively-running aggregate `kill -9`'d mid-flight) and found
+  **zero evidence of an actual leak on this machine's current OS build** -
+  coreaudiod appears to reap private aggregates on process death, crash or
+  not. Same test repeated against the process TAP object
+  (`kAudioHardwarePropertyTapList`) with the identical result. Net
+  conclusion: neither Core Audio object leaks here, so the existing
+  `createAggregateDevice` retry-on-conflict is very likely unreachable
+  dead code (a same-instance conflict isn't producible through this
+  codebase's own call graph either, since every aggregate gets a fresh
+  random UUID). Kept both the sweep and the retry as harmless
+  defense-in-depth rather than removed - full writeup in CLAUDE.md trap
+  #23, including the caveat that this was tested with a beta/future SDK on
+  one dev machine, not across real end-user macOS versions.
+- Per-app taps now follow the system default OUTPUT device changing
+  mid-session (e.g. AirPods -> speakers) - previously the output device
+  was baked into the aggregate at creation time and never re-read, so a
+  tapped app kept rendering to the old device forever after a switch while
+  everything untapped correctly followed. `AudioProcessMonitor` listens on
+  `kAudioHardwarePropertyDefaultSystemOutputDevice` (trap #17 - not the
+  selector `SystemDeviceVolumeController` watches) and rebuilds only
+  tapped, non-redirected apps - a redirected app deliberately stays on its
+  chosen device regardless. See CLAUDE.md trap #24. **Not yet confirmed by
+  ear** - the listener registers without error, but actually switching the
+  real machine's output device to watch a tapped app's audio follow was
+  left to the user.
+
+**Audio-quality regression: diagnosis and fix (2026-07-31)** — reported
+symptoms: fast bidirectional slider drags popping (clean in one direction),
+audio sometimes stopping entirely until the slider moved again, and
+redirected apps distorting without any slider interaction. Initially
+suspected to be the `TapIOState` realtime refactor above; a diff against
+pristine HEAD ruled that out directly (gain application was identical -
+instantaneous, unramped - before and after that refactor).
+- Built a temporary, env-var-gated diagnostic (used, then fully removed) to
+  drive `AppVolumeController.setSlider()` programmatically, since driving
+  the real UI isn't possible in this environment. Found the actual cause:
+  `applyGain()` tore the tap down immediately whenever gain landed on
+  exactly unity (the lazy-tap optimization) - so a drag oscillating across
+  the ±4% "snap to 100%" zone alternated between full teardown and full
+  rebuild on every crossing. Confirmed live: a simulated fast back-and-forth
+  drag produced 97 rebuilds / 67 teardowns in under 4 seconds, every one
+  starting cold - the tap essentially never survived long enough to pass
+  coherent audio, explaining both the popping and the apparent silence.
+  Ruled out the rebuild-loop guard (structurally can't trip here -
+  `setSlider()` resets it on every call) and trap #24's new listener
+  (checked under heavy churn, zero spurious fires) as contributing causes.
+- Fixed two ways: a debounced teardown with real hysteresis (a tap at
+  exactly unity gain is kept alive and passing audio, only actually torn
+  down after 1.5s of staying there - any gain move off unity cancels the
+  pending teardown), and linear gain ramping across each IOProc buffer
+  (added `previousGain` to `TapIOState`) instead of an instantaneous
+  per-buffer jump, addressing zipper noise independently of the teardown
+  storm. Full design and the live-verified rebuild counts (97/67 -> 18/5,
+  with the residual 18 being near-costless no-ops from the test harness's
+  own synthetic pid churn, and only ONE real teardown - correctly 1.5s
+  after the oscillation actually stopped) are in CLAUDE.md trap #25.
+- The redirect-distortion symptom's leading hypothesis (not yet confirmed)
+  is ordinary PID-set churn in whatever app is redirected - `updatePIDs()`
+  triggers the same full rebuild independent of the slider, and browsers/
+  Electron-style multi-process apps restart their audio-rendering helper
+  process often enough that this alone could explain recurring pops with
+  no slider interaction. A sample-rate/format mismatch between the tap and
+  the redirect target was the original hypothesis but wasn't corroborated -
+  Core Audio aggregates are specifically designed to reconcile sub-device
+  rate differences, and the tap-list entry already sets
+  `kAudioSubTapDriftCompensationKey: true`.
+- **Not yet confirmed by ear** - the stress-test evidence proves the
+  mechanism (rebuild counts, timing), not perceived audio quality; the
+  user was going to listen-test fast slider drags directly, including
+  across the 100% mark.
+
+Committed as `8c04d6b` ("Harden the tap engine: realtime safety, CPU, crash
+resilience, audio quality") and pushed to `origin/main`.
+
 ## Known gaps / not yet verified
 
 - **Launch-at-Login registration itself is unverified.** `LaunchAtLoginController`
@@ -507,10 +628,18 @@ both within one poll tick, unchanged from before this cache existed.
 - `everActiveBundleIdentifiers` / persisted-pinned apps only ever grow within
   a session (and across relaunches for persisted non-default settings) —
   there's no "forget this app" affordance yet if the list gets long.
-- The per-app tap engine (as opposed to the System section's OUTPUT/INPUT
-  rows, which do handle this) still doesn't react to the user switching the
-  *system default* output device mid-session for apps at "No Redirect" —
-  only an explicit redirect target's own disconnect/reconnect is handled.
+- **System-default-output-device switch for non-redirected taps is
+  implemented but not yet confirmed by ear.** The per-app tap engine now
+  has a listener (see Done above, CLAUDE.md trap #24) that should rebuild
+  a tapped, non-redirected app onto a newly-switched default output device
+  - registers cleanly with no error, but actually switching the machine's
+  real output device and listening for the audio to follow was left to the
+  user rather than done programmatically here.
+- **The audio-quality fix (debounced teardown + gain ramping, see Done
+  above, CLAUDE.md trap #25) is verified mechanically (rebuild/teardown
+  counts via a stress test) but not yet confirmed by ear.** Fast
+  bidirectional slider drags across 100% and fast slider moves generally
+  still need an actual listen-test.
 - **"Check for Updates…" has never actually been clicked.** The menu item,
   `SoriUpdaterController`, and the full sign/appcast/release pipeline are
   built and a real 1.1 release exists in the feed, but nobody has clicked
@@ -524,15 +653,22 @@ both within one poll tick, unchanged from before this cache existed.
 
 ## Next
 
-Pick up next session with the Launch-at-Login ground-truth check first (top
-item under Known gaps) - toggle it on/off against the real System Settings
-Login Items list, since that's the actual feature that session set out to
-build and it still hasn't been confirmed working. While in the app, also
-click "Check for Updates…" and confirm Sparkle actually finds and offers
-1.1 (it won't, from a fresh 1.1 install with nothing newer in the feed - use
-a 1.0 build if one's still around, or bump a throwaway 1.2 in the feed
-temporarily to test the flow, then revert). Get a fresh screenshot of the
-gear icon's final no-arrow/nudged-right state while at it. After that: the
-older carried-over list is unchanged - multi-PID grouping under real
-simultaneous load, and the 200% per-app boost limiter (both still unverified
-by ear/under load, see Known gaps).
+Pick up next session with the two freshest unverified fixes first, since
+they're real ear-tests, not click-throughs: (1) the audio-quality fix -
+fast bidirectional slider drags across 100% and fast slider moves generally
+should sound clean now, no popping and no dropouts; (2) switch the real
+system default output device mid-playback with a gain-adjusted,
+non-redirected app tapped, and confirm its audio actually follows to the
+new device instead of sticking to the old one (and confirm a *redirected*
+app does NOT move). After those: the Launch-at-Login ground-truth check
+(top item under Known gaps) - toggle it on/off against the real System
+Settings Login Items list, since that's the actual feature that session set
+out to build and it still hasn't been confirmed working. While in the app,
+also click "Check for Updates…" and confirm Sparkle actually finds and
+offers 1.1 (it won't, from a fresh 1.1 install with nothing newer in the
+feed - use a 1.0 build if one's still around, or bump a throwaway 1.2 in
+the feed temporarily to test the flow, then revert). Get a fresh screenshot
+of the gear icon's final no-arrow/nudged-right state while at it. After
+that: the older carried-over list is unchanged - multi-PID grouping under
+real simultaneous load, and the 200% per-app boost limiter (both still
+unverified by ear/under load, see Known gaps).

@@ -594,6 +594,91 @@ turn. Don't re-litigate them without re-testing first.
     audio routing out from under whatever the user might be doing at the
     time.
 
+25. **A live slider drag oscillating across the ±4% "snap to 100%" zone
+    (`snappingGain` in `SoriApp.swift`) used to tear the tap down and
+    rebuild it from scratch on every single crossing - confirmed live via a
+    temporary programmatic stress test (built, used, removed) at ~97
+    rebuilds / 67 teardowns in under 4 seconds of simulated fast
+    back-and-forth, every single one starting cold (`hadRunningTap=false`),
+    meaning the tap essentially never survived long enough to pass coherent
+    audio.** This was the real cause of a reported "fast bidirectional
+    slider popping / audio sometimes stops entirely until the slider moves
+    again" regression - initially suspected to be the `TapIOState` realtime
+    refactor (trap #22), but a diff against pristine HEAD showed gain
+    application was identical (instantaneous per-buffer, no ramping) before
+    and after that refactor - it was never introduced OR removed, meaning
+    zipper noise alone didn't explain the severity or the directional
+    asymmetry. The actual mechanism: `AppVolumeController.applyGain()`
+    treated exactly-unity gain as "tear the tap down" (the lazy-tap
+    optimization, trap #13) - so a drag crossing 1.0 repeatedly alternated
+    between full teardown and full rebuild, not just a gain-value change. A
+    monotonic one-direction sweep crosses the snap zone at most once, hence
+    "clean"; oscillating near it can cross dozens of times a second, hence
+    the popping and the apparent silence. Investigated and ruled out as
+    contributing causes: the rebuild-loop guard can't trip here (`setSlider()`
+    calls `resetRebuildLoopGuard()` on every invocation, before that same
+    call's own rebuild is even counted - it structurally cannot accumulate
+    across a live drag); and the new trap #24 listener doesn't fire
+    spuriously off Sori's own aggregate churn (checked under both light and
+    97-rebuild-heavy load, zero spurious fires either way).
+
+    **Fixed two ways, both required:**
+    - **Debounced teardown with hysteresis, not just retimed teardown.**
+      When gain lands on exactly unity with no redirect, the tap is no
+      longer torn down immediately - it's kept alive at gain 1.0 (a
+      unity-gain tap passes audio through unmodified; costs a little CPU,
+      audibly nothing) via `AppVolumeController.unityTeardownTimer`, a
+      1.5s one-shot `Timer` (`.common` run loop mode, same
+      NSEventTrackingRunLoopMode reasoning as every other timer in this
+      project). Only torn down for real if gain stays at unity for the
+      full debounce window. Any gain move off unity cancels the pending
+      timer and the tap just keeps running at the new gain (the existing
+      cheap live-update path). `performDebouncedTeardown` re-checks
+      `needsTap` at FIRE time, not schedule time, so correctness doesn't
+      depend on catching every path that could make a tap needed again
+      (redirect changes, trap #24's listener) - only `applyGain()`
+      explicitly cancels, as an optimization against a stray useless timer
+      fire, not for correctness. `teardownTap()` itself unconditionally
+      clears any pending timer too, regardless of which path reached it
+      (the rebuild-loop guard, a redirect disconnecting while at unity),
+      so a stale timer can never outlive the tap it was scheduled for.
+      Scoped tightly to unity + no redirect + unmuted - a redirected or
+      muted app at gain 1.0 still needs its tap regardless and is
+      unaffected.
+    - **Gain ramping in `ProcessAudioTapEngine.process()`, independent of
+      the above.** `TapIOState` gained `previousGain` - exclusively
+      audio-thread-owned (only `process()` itself reads or writes it; the
+      external `gain` setter never touches it, so this adds no new
+      cross-thread concern beyond what trap #22 already established for
+      `gain`). Each callback now linearly ramps from `previousGain` to the
+      current `gain` across the buffer's samples instead of jumping
+      instantaneously - captured ONCE per callback (not per-channel), so a
+      stereo pair ramps across the identical start/target pair and stays
+      in sync, and `previousGain` only advances once, after every buffer
+      this callback has been processed, to the actual target (not wherever
+      the ramp mathematically landed on the last sample, which undershoots
+      by one step by construction) - so a steady gain starts the next
+      callback flat rather than perpetually "chasing" a target it's
+      already effectively reached. Limiter engagement now checks
+      `max(startGain, targetGain) > 1.0`, since either end of a ramp (not
+      just a single scalar) can enter boost territory.
+
+    **Verified live**, via the same temporary stress test re-run against
+    the fix: the identical oscillation pattern that produced 97
+    rebuilds/67 teardowns produced 18 rebuild-attempts/5 teardowns
+    afterward - and every one of those 18 had `pids=[]`, meaning they were
+    near-costless no-ops from the test harness's own synthetic pid churn
+    (an `afplay` loop racing the 250ms poll), not real Core Audio object
+    creation. Of 85 times the oscillation crossed unity, 84 were cancelled
+    before the debounce fired; exactly ONE real teardown happened, 1.5s
+    after the oscillation genuinely stopped - precisely the intended
+    behavior. Confirmed no regression to boosted/limiter behavior
+    separately (gain 1.8x, `/usr/bin/log stream` showed the same clean 1Hz
+    "Limiter not engaged" cadence as before). **Not yet confirmed by ear**
+    - the stress test proves the mechanism (rebuild counts, timing), not
+    perceived audio quality; the user was going to listen-test fast
+    slider drags (including across 100%) directly.
+
 ## Login item & popover-chrome notes (not Core Audio, kept separate from the
 numbered list above on purpose - these are SwiftUI/AppKit/ServiceManagement
 findings, not Core Audio ones)
